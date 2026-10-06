@@ -8,8 +8,8 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // GitHub Actions truyền số lần build để mỗi bản APK mới cài đè được bản cũ
-        versionCode (System.getenv("OLIVE_VERSION_CODE") ?: "1").toInteger()
-        versionName "1.0." + (System.getenv("OLIVE_VERSION_CODE") ?: "0")
+        versionCode = Integer.parseInt(System.getenv("OLIVE_VERSION_CODE") ?: "1")
+        versionName = "1.0." + (System.getenv("OLIVE_VERSION_CODE") ?: "0")
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
