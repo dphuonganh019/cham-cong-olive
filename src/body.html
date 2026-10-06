@@ -1,0 +1,183 @@
+<header class="top">
+  <div class="top-in">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+      <h1>Chấm Công Olive</h1>
+    </div>
+    <span class="store-chip" id="storeChip"><span class="dot"></span><span id="storeText">Đang tải dữ liệu…</span></span>
+  </div>
+</header>
+
+<nav class="tabs" aria-label="Chuyển màn hình">
+  <div class="tabs-in" role="tablist">
+    <button class="tab" role="tab" id="tb-today" data-tab="today" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Hôm nay</button>
+    <button class="tab" role="tab" id="tb-month" data-tab="month" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Bảng công</button>
+    <button class="tab" role="tab" id="tb-pay" data-tab="pay" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><circle cx="12" cy="12.5" r="2.5"/><path d="M6 9.5h.01M18 15.5h.01"/></svg>Lương</button>
+    <button class="tab" role="tab" id="tb-settings" data-tab="settings" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>Cài đặt</button>
+  </div>
+</nav>
+
+<main class="wrap">
+  <!-- HÔM NAY -->
+  <section class="view" id="view-today">
+    <div class="today-hero">
+      <div class="card clock-card">
+        <div class="spread">
+          <span class="date-line" id="todayDate"></span>
+          <span class="pill" id="todayStatus">Chưa check in</span>
+        </div>
+        <div class="clock" id="clock">--:--</div>
+        <div class="punch">
+          <div class="slot" id="slotIn"><span class="src">Giờ vào</span><b id="inVal">--:--</b><span class="small muted" id="inSrc">Chưa có</span></div>
+          <div class="slot" id="slotOut"><span class="src">Giờ ra</span><b id="outVal">--:--</b><span class="small muted" id="outSrc">Chưa có</span></div>
+        </div>
+        <div class="spread small">
+          <span>Đã làm: <b class="mono" id="workedToday">0h</b> <span class="muted">(đã trừ nghỉ trưa)</span></span>
+          <span id="otToday"></span>
+        </div>
+        <div class="big-actions" id="punchActions"></div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+        <div class="card gps-card">
+          <div class="spread"><h3>Định vị GPS</h3><span class="pill" id="gpsPill">Đang kiểm tra</span></div>
+          <div class="gps-line" style="margin-top:10px"><span class="gps-dot" id="gpsDot"></span><p style="margin:0" id="gpsText" class="small">App đọc vị trí khi trang đang mở để tự check in, nhận biết công tác và check out.</p></div>
+          <label class="check small" style="margin-top:12px"><input type="checkbox" id="wakeLock"> Giữ màn hình sáng để GPS chạy liên tục</label>
+        </div>
+        <div class="card">
+          <div class="spread"><h3>Nhật ký hôm nay</h3><button class="btn sm ghost" id="editTodayBtn">Sửa giờ</button></div>
+          <ul class="timeline" id="timeline" style="margin-top:8px"></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BẢNG CÔNG -->
+  <section class="view" id="view-month" hidden>
+    <div class="spread">
+      <div class="month-nav">
+        <button class="icon-btn" data-mnav="-1" aria-label="Tháng trước"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <h2 class="month-title"></h2>
+        <button class="icon-btn" data-mnav="1" aria-label="Tháng sau"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></button>
+      </div>
+      <button class="btn sm" id="addDayBtn">+ Thêm / sửa ngày</button>
+    </div>
+    <div class="stats" id="monthStats"></div>
+    <div id="monthWarn"></div>
+    <div class="table-wrap"><table class="grid" id="monthTable"></table></div>
+    <div class="legend">
+      <span><span class="srcdot manual"></span> Giờ bạn nhập</span>
+      <span><span class="srcdot gps"></span> Giờ GPS ghi nhận</span>
+      <span>Bấm vào một dòng để sửa giờ vào/ra</span>
+    </div>
+  </section>
+
+  <!-- LƯƠNG -->
+  <section class="view" id="view-pay" hidden>
+    <div class="spread">
+      <div class="month-nav">
+        <button class="icon-btn" data-mnav="-1" aria-label="Tháng trước"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <h2 class="month-title"></h2>
+        <button class="icon-btn" data-mnav="1" aria-label="Tháng sau"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></button>
+      </div>
+      <div class="row">
+        <button class="btn sm" id="xlsxBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Excel</button>
+        <button class="btn sm" id="pdfBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>PDF</button>
+      </div>
+    </div>
+    <div class="card pay-total" id="payTotal"></div>
+    <div class="card" id="payLines"></div>
+    <div class="card">
+      <div class="spread"><h3>Mức lương của bạn</h3><span class="small muted">Lương thử việc và chính thức tính theo ngày áp dụng</span></div>
+      <ul class="sal-list" id="salList" style="margin-top:12px"></ul>
+      <form id="salForm" class="fields" style="margin-top:14px;align-items:end">
+        <label class="f">Áp dụng từ ngày<input type="date" id="salFrom" required></label>
+        <label class="f">Lương tháng (VNĐ)<input type="text" inputmode="numeric" id="salAmount" placeholder="10.000.000" required></label>
+        <label class="f">Trạng thái<select id="salStatus"><option value="probation">Thử việc</option><option value="official">Chính thức</option></select></label>
+        <button class="btn primary" type="submit">Lưu mức lương</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- CÀI ĐẶT -->
+  <section class="view" id="view-settings" hidden>
+    <div class="settings-grid">
+      <div class="card">
+        <h3>Thông tin</h3>
+        <div class="fields" style="margin-top:12px">
+          <label class="f">Họ tên (in trên bảng lương)<input id="setName" placeholder="Nguyễn Văn A"></label>
+        </div>
+      </div>
+      <div class="card">
+        <div class="spread"><h3>Địa điểm làm việc</h3><button class="btn sm" id="useHereBtn">Lấy vị trí hiện tại</button></div>
+        <div class="fields" style="margin-top:12px">
+          <label class="f">Tên địa điểm<input id="offName"></label>
+          <label class="f">Vĩ độ (lat)<input id="offLat" inputmode="decimal" placeholder="21.0359"></label>
+          <label class="f">Kinh độ (lng)<input id="offLng" inputmode="decimal" placeholder="105.8342"></label>
+          <label class="f">Bán kính (mét)<input id="offRadius" type="number" min="30" step="10"><span class="hint">Trong bán kính này = đang ở chỗ làm</span></label>
+        </div>
+        <p class="small muted" style="margin-bottom:0">Mẹo: mở Google Maps, nhấn giữ vào toà nhà công ty, sao chép 2 số toạ độ và dán vào đây. <a id="mapLink" href="https://maps.google.com" target="_blank" rel="noopener">Xem vị trí đã lưu trên bản đồ</a></p>
+      </div>
+      <div class="card">
+        <h3>Quy tắc tính công</h3>
+        <div class="fields" style="margin-top:12px">
+          <label class="f">Nghỉ trưa từ<input type="time" id="wLunchStart"></label>
+          <label class="f">Nghỉ trưa đến<input type="time" id="wLunchEnd"></label>
+          <label class="f">Giờ chuẩn thứ 7 (= 1 công)<input type="number" min="1" max="8" step="0.5" id="wSat"></label>
+          <label class="f">Rời đi sau giờ này = check out<input type="time" id="wCutoff"></label>
+          <label class="f">Rời đi trong (phút đầu) = công tác<input type="number" min="5" id="wTrip"></label>
+          <label class="f">Ở chỗ làm đủ (phút) = check in<input type="number" min="1" id="wDwell"></label>
+          <label class="f">Ra khỏi bán kính đủ (phút) = đã rời<input type="number" min="1" id="wLeave"></label>
+          <label class="f">Làm tròn giờ vào/ra theo block (phút)<input type="number" min="1" id="wRoundMin"></label>
+          <label class="f">Cách làm tròn<select id="wRoundMode"><option value="down">Làm tròn xuống cả giờ vào và giờ ra</option><option value="company">Vào làm tròn lên, ra làm tròn xuống</option><option value="nearest">Làm tròn về mốc gần nhất</option><option value="none">Không làm tròn</option></select></label>
+          <label class="f">OT tối thiểu / bước (phút)<input type="number" min="1" id="wBlock"></label>
+          <label class="f">Số công chuẩn/tháng<select id="wStd"><option value="auto">Tự động: số ngày T2–T7</option><option value="24">24 công</option><option value="26">26 công</option></select></label>
+        </div>
+        <p class="small muted" style="margin-bottom:0">Giờ làm tính từ lúc check in đến lúc check out, không phụ thuộc giờ hành chính 8h–17h, nên đi sớm về sớm hay đi sớm về muộn đều được tính đúng. Mốc vào/ra làm tròn xuống theo block 15 phút (6:07 → 6:00, 6:47 → 6:45), trừ 9 tiếng (8 tiếng làm + 1 tiếng nghỉ trưa), phần dư từ 30 phút trở lên tính OT 150% theo bước 0,5 giờ. Ví dụ: 6:00–15:00 đủ công, chưa OT; 6:30–17:00 được 1,5 giờ OT; 8:00–17:43 tính đến 17:30, được 0,5 giờ OT. Chủ nhật 200%, ngày lễ 300%, nghỉ bù 200%.</p>
+      </div>
+      <div class="card">
+        <div class="spread"><h3>Ngày lễ Việt Nam</h3><span class="small muted">Đã có lịch 2026–2027, thêm năm mới khi có thông báo</span></div>
+        <div class="hol-list" id="holList" style="margin-top:12px"></div>
+        <form id="holForm" class="fields" style="margin-top:12px;align-items:end">
+          <label class="f">Ngày<input type="date" id="holDate" required></label>
+          <label class="f">Tên ngày lễ<input id="holName" required placeholder="Tết Dương lịch"></label>
+          <label class="f">Loại<select id="holKind"><option value="holiday">Ngày lễ (300%)</option><option value="comp">Nghỉ bù (200%)</option></select></label>
+          <button class="btn" type="submit">Thêm ngày</button>
+        </form>
+      </div>
+      <div class="card">
+        <h3>Sao lưu dữ liệu</h3>
+        <p class="small muted" id="backupNote">Tải về toàn bộ dữ liệu chấm công dưới dạng file JSON, hoặc nhập lại từ file đã sao lưu.</p>
+        <div class="row">
+          <button class="btn sm" id="exportJsonBtn">Tải file sao lưu</button>
+          <label class="btn sm" for="importJson" style="cursor:pointer">Nhập từ file sao lưu</label>
+          <input type="file" id="importJson" accept="application/json,.json" hidden>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="editModal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="edTitle">
+    <div class="spread"><h2 id="edTitle">Sửa ngày</h2><button class="x-btn" id="edClose" aria-label="Đóng">✕</button></div>
+    <div class="row" id="edMeta"></div>
+    <div class="fields">
+      <label class="f">Ngày<input type="date" id="edDate"></label>
+      <label class="f">Giờ vào<input type="time" id="edIn"></label>
+      <label class="f">Giờ ra<input type="time" id="edOut"></label>
+    </div>
+    <p class="small muted" id="edGps" style="margin:0"></p>
+    <label class="check"><input type="checkbox" id="edTrip"> Có đi công tác trong ngày</label>
+    <label class="f">Ghi chú<textarea id="edNote" placeholder="VD: đi công tác Bắc Ninh"></textarea></label>
+    <div class="row" style="justify-content:space-between">
+      <div class="row">
+        <button class="btn sm ghost" id="edUseGps">Dùng lại giờ GPS</button>
+        <button class="btn sm danger" id="edDelete">Xoá ngày này</button>
+      </div>
+      <button class="btn primary" id="edSave">Lưu</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+<div id="pdfStage" aria-hidden="true"></div>

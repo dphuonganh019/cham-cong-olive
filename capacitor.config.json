@@ -1,0 +1,11 @@
+{
+  "appId": "vn.olive.chamcong",
+  "appName": "Chấm Công Olive",
+  "webDir": "www",
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "css",
+      "initialViewportFitValueHint": "cover"
+    }
+  }
+}

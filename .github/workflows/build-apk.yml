@@ -1,0 +1,84 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Bangkok
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cài thư viện
+        run: npm ci
+
+      - name: Kiểm tra logic tính công
+        run: npm test
+
+      - name: Dựng giao diện web
+        run: npm run build:web
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Đồng bộ web vào Android
+        run: npx cap sync android
+
+      - name: Kiểm tra khoá ký APK
+        env:
+          KS: ${{ secrets.OLIVE_KEYSTORE_BASE64 }}
+          PW: ${{ secrets.OLIVE_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KS" ] || [ -z "$PW" ]; then
+            echo "::error::Chưa có secret OLIVE_KEYSTORE_BASE64 / OLIVE_KEYSTORE_PASSWORD. Vào Settings → Secrets and variables → Actions để thêm."
+            exit 1
+          fi
+          echo "$KS" | base64 -d > "$RUNNER_TEMP/olive-release.jks"
+
+      - name: Build APK
+        working-directory: android
+        env:
+          OLIVE_KEYSTORE_PATH: ${{ runner.temp }}/olive-release.jks
+          OLIVE_KEYSTORE_PASSWORD: ${{ secrets.OLIVE_KEYSTORE_PASSWORD }}
+          OLIVE_KEY_ALIAS: olive
+          OLIVE_KEY_PASSWORD: ${{ secrets.OLIVE_KEYSTORE_PASSWORD }}
+          OLIVE_VERSION_CODE: ${{ github.run_number }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Đặt tên file
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/app-release.apk "out/ChamCongOlive-v1.0.${{ github.run_number }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChamCongOlive-v1.0.${{ github.run_number }}
+          path: out/*.apk
+
+      - name: Tạo bản phát hành để tải APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Chấm Công Olive v1.0.${{ github.run_number }}
+          files: out/*.apk
+          body: |
+            Tải file `.apk` bên dưới về điện thoại Android và mở để cài.
+            Bản mới cài đè lên bản cũ, dữ liệu chấm công được giữ nguyên.

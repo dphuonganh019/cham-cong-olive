@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Chấm Công Olive</string>
+    <string name="title_activity_main">Chấm Công Olive</string>
+    <string name="package_name">vn.olive.chamcong</string>
+    <string name="custom_url_scheme">vn.olive.chamcong</string>
+</resources>
