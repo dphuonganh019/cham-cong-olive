@@ -1,4 +1,14 @@
 /* ===== APP ===== */
+/* Android (Capacitor): NATIVE và plugin khai báo đầu tiên; lỗi plugin không được làm hỏng cả app */
+const NATIVE = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+function capPlugin(name) {
+  try {
+    const cap = window.Capacitor;
+    if (typeof cap.registerPlugin === 'function') return cap.registerPlugin(name);
+    return (cap.Plugins && cap.Plugins[name]) || null;
+  } catch (e) { return null; }
+}
+const Native = NATIVE ? { geo: capPlugin('OliveGeofence'), fs: capPlugin('Filesystem'), share: capPlugin('Share') } : null;
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -190,12 +200,6 @@ function startGps() {
   gpsTimer = setInterval(() => gpsTick(Date.now()), 30000); // đứng yên vẫn đếm đủ 5 phút
 }
 /* ---------- Android: chấm công nền bằng geofence ---------- */
-const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-const Native = NATIVE ? {
-  geo: window.Capacitor.registerPlugin('OliveGeofence'),
-  fs: window.Capacitor.registerPlugin('Filesystem'),
-  share: window.Capacitor.registerPlugin('Share'),
-} : null;
 let geoRt = {};
 function loadGeoRt() { try { geoRt = JSON.parse(localStorage.getItem('olive:geort') || '{}') || {}; } catch (e) { geoRt = {}; } }
 function storeGeoRt() {
@@ -677,7 +681,7 @@ function setStoreChip() {
   $('#storeText').textContent = Store.mode === 'cloud' ? 'Dữ liệu riêng của bạn' : NATIVE ? 'Lưu trong điện thoại' : 'Lưu trên máy này';
 }
 async function boot() {
-  renderToday();
+  try { renderToday(); } catch (e) { console.error(e); }
   await Store.init();
   settings = mergeSettings(await Store.get('settings'));
   const n = new Date();
@@ -686,4 +690,5 @@ async function boot() {
   setStoreChip(); renderAll(); loadRt(); startGps();
   if (window.claude && typeof window.claude.use === 'function') window.claude.use('downloads');
 }
-boot();
+boot().catch(e => { console.error(e); toast('Lỗi khi khởi động app: ' + ((e && e.message) || e)); });
+window.addEventListener('error', e => toast('Lỗi: ' + (e.message || 'không rõ')));

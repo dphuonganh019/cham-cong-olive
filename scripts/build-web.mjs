@@ -19,6 +19,7 @@ ${head}
 </head>
 <body>
 ${body}
+<script src="lib/capacitor.js"></script>
 ${script}
 </body>
 </html>
@@ -28,7 +29,7 @@ mkdirSync('www/lib', { recursive: true });
 mkdirSync('dist', { recursive: true });
 writeFileSync('www/index.html', full);
 writeFileSync('dist/artifact.html', `${head}\n${body}\n${script}\n`);
-for (const f of ['xlsx/dist/xlsx.full.min.js', 'html2canvas/dist/html2canvas.min.js', 'jspdf/dist/jspdf.umd.min.js']) {
+for (const f of ['@capacitor/core/dist/capacitor.js', 'xlsx/dist/xlsx.full.min.js', 'html2canvas/dist/html2canvas.min.js', 'jspdf/dist/jspdf.umd.min.js']) {
   copyFileSync('node_modules/' + f, 'www/lib/' + f.split('/').pop());
 }
 new Function(js); // báo lỗi cú pháp ngay khi build
