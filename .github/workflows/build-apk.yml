@@ -41,20 +41,23 @@ jobs:
         run: npx cap sync android
 
       - name: Kiểm tra khoá ký APK
+        id: key
         env:
           KS: ${{ secrets.OLIVE_KEYSTORE_BASE64 }}
           PW: ${{ secrets.OLIVE_KEYSTORE_PASSWORD }}
         run: |
           if [ -z "$KS" ] || [ -z "$PW" ]; then
-            echo "::error::Chưa có secret OLIVE_KEYSTORE_BASE64 / OLIVE_KEYSTORE_PASSWORD. Vào Settings → Secrets and variables → Actions để thêm."
-            exit 1
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Chưa có secret OLIVE_KEYSTORE_BASE64 / OLIVE_KEYSTORE_PASSWORD, chỉ build thử để kiểm tra code."
+          else
+            echo "$KS" | base64 -d > "$RUNNER_TEMP/olive-release.jks"
+            echo "has_key=true" >> "$GITHUB_OUTPUT"
           fi
-          echo "$KS" | base64 -d > "$RUNNER_TEMP/olive-release.jks"
 
       - name: Build APK
         working-directory: android
         env:
-          OLIVE_KEYSTORE_PATH: ${{ runner.temp }}/olive-release.jks
+          OLIVE_KEYSTORE_PATH: ${{ steps.key.outputs.has_key == 'true' && format('{0}/olive-release.jks', runner.temp) || '' }}
           OLIVE_KEYSTORE_PASSWORD: ${{ secrets.OLIVE_KEYSTORE_PASSWORD }}
           OLIVE_KEY_ALIAS: olive
           OLIVE_KEY_PASSWORD: ${{ secrets.OLIVE_KEYSTORE_PASSWORD }}
@@ -62,6 +65,12 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Dừng nếu chưa có khoá ký
+        if: steps.key.outputs.has_key != 'true'
+        run: |
+          echo "::error::Code build được nhưng chưa ký vì thiếu secret khoá ký. Thêm 2 secret rồi chạy lại workflow."
+          exit 1
 
       - name: Đặt tên file
         run: |
