@@ -68,7 +68,14 @@ jobs:
           OLIVE_VERSION_CODE: ${{ github.run_number }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon --stacktrace
+          set -o pipefail
+          if ! ./gradlew assembleRelease --no-daemon 2>&1 | tee "$RUNNER_TEMP/gradle.log"; then
+            # Đưa dòng lỗi lên phần Annotations để dễ đọc
+            grep -E "error:|\.java:[0-9]+|What went wrong|> |Could not|FAILURE|e: " "$RUNNER_TEMP/gradle.log" | head -40 | while IFS= read -r line; do
+              echo "::error::${line//%/%25}"
+            done
+            exit 1
+          fi
 
       - name: Dừng nếu chưa có khoá ký
         if: steps.key.outputs.has_key != 'true'
