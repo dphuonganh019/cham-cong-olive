@@ -136,6 +136,9 @@ function renderToday() {
   const tl = $('#timeline'), evs = (rec.events || []).slice().sort((a, b) => a.t < b.t ? -1 : 1);
   tl.innerHTML = evs.length ? evs.map(e => `<li><time>${esc(e.t)}</time><span>${esc(e.text)}</span></li>`).join('')
     : `<li style="display:block"><div class="empty small">Chưa có sự kiện nào. Bấm Check in khi tới chỗ làm, hoặc để GPS tự ghi nhận.</div></li>`;
+  const sg = (rec.signals || []).slice().sort((a, b) => a.t < b.t ? -1 : 1);
+  $('#signals').hidden = !sg.length;
+  $('#signalList').innerHTML = sg.map(s => `<li class="${s.rejected ? 'rej' : ''}"><time>${esc(s.t)}</time><span>${esc(s.text)}</span></li>`).join('');
 }
 function punch(kind) {
   if (!ready) { toast('Đang tải dữ liệu, thử lại sau vài giây'); return; }
@@ -169,7 +172,7 @@ function gpsTick(nowMs) {
   const rec = recFor(key, true);
   rec.gps = rec.gps || {};
   const before = JSON.stringify(rec.gps);
-  const evs = gpsStep(gpsRt, rec.gps, gpsRt.lastInside, nowMs || Date.now(), settings);
+  const evs = gpsStep(gpsRt, rec.gps, gpsRt.lastInside, nowMs || Date.now(), settings, rec.manualIn || null);
   evs.forEach(e => logEvent(rec, e.t, e.text));
   storeRt();
   if (evs.length || JSON.stringify(rec.gps) !== before) { touch(key); renderToday(); evs.forEach(e => toast(e.text)); }
@@ -216,14 +219,20 @@ async function syncGeofenceEvents() {
   if (!events.length) return;
   const keys = [...new Set(events.map(e => dateKey(new Date(e.time))))];
   for (const k of keys) { const [y, m] = k.split('-').map(Number); await ensureMonth(y, m); }
-  const out = geofenceReplay(events, geoRt, k => { const rec = recFor(k, true); return rec.gps || (rec.gps = {}); }, settings);
-  out.forEach(x => logEvent(recFor(x.key, true), x.t, x.text));
+  const out = geofenceReplay(events, geoRt, k => recFor(k, true), settings);
+  out.forEach(x => {
+    const rec = recFor(x.key, true);
+    if (x.kind === 'signal') {
+      rec.signals = (rec.signals || []).concat([{ t: x.t, text: x.text, rejected: x.rejected }]).slice(-60);
+    } else logEvent(rec, x.t, x.text);
+  });
   keys.forEach(touch);
   storeGeoRt();
   try { await Native.geo.clearEvents({ upTo: Math.max(...events.map(e => e.time)) }); } catch (e) {}
   renderToday();
   if (!$('#view-month').hidden || !$('#view-pay').hidden) renderMonthViews();
-  if (out.length) toast(out[out.length - 1].text);
+  const lastEv = out.filter(x => x.kind === 'event').pop();
+  if (lastEv) toast(lastEv.text);
 }
 function nativeCard(st) {
   const o = settings.office;

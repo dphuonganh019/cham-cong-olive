@@ -8,37 +8,61 @@ import android.location.Location;
 import com.google.android.gms.location.Geofence;
 import com.google.android.gms.location.GeofencingEvent;
 
+import org.json.JSONObject;
+
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
-/** Nhận sự kiện vào / ở lại / rời vùng chấm công, kể cả khi app đã tắt. */
+/**
+ * Nhận tín hiệu vào / ở lại / rời vùng chấm công, kể cả khi app đã tắt.
+ * Android báo vùng bằng định vị tiết kiệm pin (nhiều khi chỉ dựa vào trạm phát sóng, sai số hàng km),
+ * nên mỗi tín hiệu "vào vùng" được đo lại bằng GPS chính xác cao trước khi tính công.
+ */
 public class GeofenceReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         GeofencingEvent ev = GeofencingEvent.fromIntent(intent);
         if (ev == null || ev.hasError()) return;
         int tr = ev.getGeofenceTransition();
-        String type;
+        final String type;
         if (tr == Geofence.GEOFENCE_TRANSITION_ENTER) type = "enter";
         else if (tr == Geofence.GEOFENCE_TRANSITION_DWELL) type = "dwell";
         else if (tr == Geofence.GEOFENCE_TRANSITION_EXIT) type = "exit";
         else return;
 
-        long now = System.currentTimeMillis(), time = now;
-        Location loc = ev.getTriggeringLocation();
-        if (loc != null && loc.getTime() > 0 && loc.getTime() <= now && now - loc.getTime() < 30L * 60 * 1000) {
-            time = loc.getTime();
+        long now = System.currentTimeMillis();
+        long t = now;
+        final Location trig = ev.getTriggeringLocation();
+        if (trig != null && trig.getTime() > 0 && trig.getTime() <= now && now - trig.getTime() < 30L * 60 * 1000) {
+            t = trig.getTime();
         }
-        GeofenceStore.appendEvent(context, type, time);
+        final long time = t;
+        final Context c = context.getApplicationContext();
+        final PendingResult pr = goAsync();
+        LocationCheck.fresh(c, trig, (loc, fresh) -> {
+            try { handle(c, type, time, loc, fresh); }
+            finally { pr.finish(); }
+        });
+    }
+
+    private static void handle(Context c, String type, long time, Location loc, boolean fresh) {
+        JSONObject o = GeofenceStore.describe(c, type, time, loc, fresh, "geofence");
+        GeofenceStore.appendEvent(c, o);
+        if (o.optBoolean("rejected", false)) {
+            // Báo nhầm: tự kiểm tra lại để không bỏ lỡ lúc tới thật
+            RecheckReceiver.scheduleFirst(c);
+            return;
+        }
+        if (type.equals("dwell") || type.equals("exit")) RecheckReceiver.cancel(c);
 
         SimpleDateFormat hm = new SimpleDateFormat("HH:mm", Locale.getDefault());
         if (type.equals("dwell")) {
-            int dwellMin = GeofenceStore.prefs(context).getInt("dwellMin", 5);
+            int dwellMin = GeofenceStore.prefs(c).getInt("dwellMin", 5);
             String arrived = hm.format(new Date(time - dwellMin * 60L * 1000));
-            GeofenceStore.notify(context, 1, "Đã tới chỗ làm", "Ghi nhận có mặt từ " + arrived + ". Mở app để xem công hôm nay.");
+            GeofenceStore.notify(c, 1, "Đã tới chỗ làm", "Ghi nhận có mặt từ " + arrived + ". Mở app để xem công hôm nay.");
         } else if (type.equals("exit")) {
-            GeofenceStore.notify(context, 2, "Đã rời chỗ làm", "Lúc " + hm.format(new Date(time)) + ". App sẽ tự xét công tác hoặc check out.");
+            GeofenceStore.notify(c, 2, "Đã rời chỗ làm", "Lúc " + hm.format(new Date(time)) + ". App sẽ tự xét công tác hoặc check out.");
         }
     }
 }

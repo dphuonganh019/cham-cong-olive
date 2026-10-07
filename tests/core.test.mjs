@@ -49,10 +49,10 @@ test('lương tháng theo công chuẩn T2–T7', () => {
   assert.equal(M.totals.otPay, Math.round(0.5 * 1.5 * 50000)); // lương giờ 50.000
 });
 
-function replay(events) {
-  const days = {}, rt = {};
+function replay(events, manualIn) {
+  const days = { '2026-10-06': manualIn ? { manualIn } : {} }, rt = {};
   const evs = geofenceReplay(events, rt, k => (days[k] = days[k] || {}), S);
-  return { g: days['2026-10-06'], evs };
+  return { g: days['2026-10-06'].gps, evs };
 }
 
 test('TH1 geofence: tới 7:55, đi công tác 8:30, về 14:00, rời 16:10', () => {
@@ -89,4 +89,46 @@ test('Đi ngang qua văn phòng khi đang công tác không làm hỏng chuyến
   assert.equal(g.status, 'trip');
   assert.equal(g.trips[0].end, null);
   assert.equal(g.out ?? null, null);
+});
+
+test('Ngày 07/10: đã bấm check in 06:58, tín hiệu vào vùng 16:33 không tạo check in mới; rời 17:11 là check out', () => {
+  const { g, evs } = replay([
+    { type: 'dwell', time: at(6, 16, 38) },
+    { type: 'exit', time: at(6, 17, 11) },
+  ], '06:58');
+  assert.equal(g.in ?? null, null);
+  assert.equal(g.trips.length, 0);
+  assert.equal(g.out, '17:11');
+  assert.ok(evs.some(e => e.kind === 'event' && /Có mặt ở chỗ làm/.test(e.text)));
+  assert.ok(!evs.some(e => /đi công tác/.test(e.text)));
+});
+
+test('Tín hiệu Android báo nhầm (vị trí thực ở xa) bị bỏ qua, chỉ ghi lại để kiểm tra', () => {
+  const { g, evs } = replay([
+    { type: 'enter', time: at(6, 16, 33), dist: 2400, acc: 900, rejected: true },
+    { type: 'dwell', time: at(6, 16, 38), dist: 1800, acc: 25, fresh: true, rejected: true },
+    { type: 'exit', time: at(6, 17, 11), dist: 400, acc: 15 },
+  ], '06:58');
+  assert.equal(g.status ?? null, null);
+  assert.equal(g.out ?? null, null);
+  assert.equal(evs.filter(e => e.kind === 'event').length, 0);
+  assert.equal(evs.filter(e => e.kind === 'signal' && e.rejected).length, 2);
+});
+
+test('Ghé chỗ làm 8 phút rồi đi công tác ngay, không có tín hiệu "ở lại": vẫn check in và tính công tác', () => {
+  const { g } = replay([
+    { type: 'enter', time: at(6, 6, 55) },
+    { type: 'exit', time: at(6, 7, 3) },
+  ]);
+  assert.equal(g.in, '06:55');
+  assert.equal(g.trips[0].start, '07:03');
+});
+
+test('Bấm check in tay rồi đi công tác trong giờ đầu: GPS vẫn ghi nhận công tác', () => {
+  const { g } = replay([
+    { type: 'enter', time: at(6, 6, 57) }, { type: 'dwell', time: at(6, 7, 2) },
+    { type: 'exit', time: at(6, 7, 20) },
+  ], '06:58');
+  assert.equal(g.in ?? null, null);
+  assert.equal(g.trips[0].start, '07:20');
 });

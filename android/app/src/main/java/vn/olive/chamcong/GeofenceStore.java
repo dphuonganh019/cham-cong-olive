@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.location.Location;
 import android.os.Build;
 
 import androidx.core.app.NotificationCompat;
@@ -124,14 +125,56 @@ public final class GeofenceStore {
         }
     }
 
-    static synchronized void appendEvent(Context c, String type, long time) {
-        JSONArray arr = events(c);
+    static float radius(Context c) {
+        return Math.max(50f, prefs(c).getFloat("radius", 150f));
+    }
+
+    /** Khoảng cách (mét) từ vị trí tới tâm vùng chấm công. */
+    static float distanceTo(Context c, Location l) {
+        SharedPreferences p = prefs(c);
+        double lat = Double.parseDouble(p.getString("lat", "0"));
+        double lng = Double.parseDouble(p.getString("lng", "0"));
+        float[] r = new float[1];
+        Location.distanceBetween(lat, lng, l.getLatitude(), l.getLongitude(), r);
+        return r[0];
+    }
+
+    /** Ở trong vùng nếu khoảng cách không vượt bán kính + sai số (sai số tính tối đa 100 m). */
+    static boolean isInside(Context c, Location l) {
+        float acc = l.hasAccuracy() ? l.getAccuracy() : 100f;
+        return distanceTo(c, l) <= radius(c) + Math.min(acc, 100f);
+    }
+
+    /** Ghi một tín hiệu kèm khoảng cách và sai số; tín hiệu "vào vùng" mà vị trí thực ở ngoài sẽ bị đánh dấu bỏ qua. */
+    static JSONObject describe(Context c, String type, long time, Location l, boolean fresh, String src) {
+        JSONObject o = new JSONObject();
         try {
-            JSONObject o = new JSONObject();
             o.put("type", type);
             o.put("time", time);
-            arr.put(o);
+            o.put("src", src);
+            if (l != null && hasConfig(c)) {
+                o.put("dist", Math.round(distanceTo(c, l)));
+                if (l.hasAccuracy()) o.put("acc", Math.round(l.getAccuracy()));
+                o.put("fresh", fresh);
+                boolean inSignal = type.equals("enter") || type.equals("dwell");
+                if (inSignal && !isInside(c, l)) o.put("rejected", true);
+            }
         } catch (JSONException ignored) {}
+        return o;
+    }
+
+    static synchronized void appendEvent(Context c, String type, long time) {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("type", type);
+            o.put("time", time);
+        } catch (JSONException ignored) {}
+        appendEvent(c, o);
+    }
+
+    static synchronized void appendEvent(Context c, JSONObject o) {
+        JSONArray arr = events(c);
+        arr.put(o);
         JSONArray trimmed = arr;
         if (arr.length() > MAX_EVENTS) {
             trimmed = new JSONArray();

@@ -168,24 +168,27 @@ function computeMonth(y, m, days, settings, now) {
 }
 
 /* ===== GPS: máy trạng thái theo TH1 / TH2 =====
-   rt: trạng thái tạm trong bộ nhớ {insideSince, outsideSince}
+   rt: trạng thái tạm {insideSince, outsideSince}
    g : rec.gps lưu lại {in, out, trips:[{start,end}], status:'in'|'trip'|'out'|'left'}
+   manualIn: giờ vào bấm tay (nếu có) — GPS không tạo check in mới khi đã bấm tay,
+             và mốc "1 tiếng đầu" tính từ giờ vào có hiệu lực (GPS hoặc bấm tay).
    Trả về mảng sự kiện mới (để ghi vào nhật ký). */
-function gpsStep(rt, g, inside, nowMs, settings) {
+function gpsStep(rt, g, inside, nowMs, settings, manualIn) {
   const w = settings.work, ev = [];
   const t = ms => fromMin(minOfDay(ms));
+  const dwellMs = w.dwellMin * 60000;
   g.trips = g.trips || [];
   if (inside) {
     rt.outsideSince = null;
     if (rt.insideSince == null) rt.insideSince = nowMs;
     const stayed = nowMs - rt.insideSince;
-    if (!g.in) {
-      if (stayed >= w.dwellMin * 60000) {
-        g.in = t(rt.insideSince); g.status = 'in';
-        ev.push({ t: g.in, text: 'Tới chỗ làm đủ ' + w.dwellMin + ' phút → check in (GPS)' });
-      }
-    } else if (g.status && g.status !== 'in' && stayed >= 60000) {
-      const at = t(rt.insideSince);
+    if (stayed < dwellMs) return ev;              // chưa ở đủ lâu: chưa tính gì
+    const at = t(rt.insideSince);
+    if (!g.status) {                              // lần đầu trong ngày GPS xác nhận có mặt
+      g.status = 'in';
+      if (manualIn) ev.push({ t: at, text: 'Có mặt ở chỗ làm (đã check in tay lúc ' + manualIn + ')' });
+      else { g.in = at; ev.push({ t: at, text: 'Tới chỗ làm đủ ' + w.dwellMin + ' phút → check in (GPS)' }); }
+    } else if (g.status !== 'in') {
       if (g.status === 'trip') {
         const last = g.trips[g.trips.length - 1];
         if (last && !last.end) last.end = at;
@@ -199,16 +202,19 @@ function gpsStep(rt, g, inside, nowMs, settings) {
       g.status = 'in';
     }
   } else {
+    // Vừa ra khỏi vùng: chốt trước khoảng thời gian vừa ở trong (phòng khi chưa có tín hiệu "ở lại")
+    if (rt.insideSince != null) ev.push(...gpsStep(rt, g, true, nowMs, settings, manualIn));
     rt.insideSince = null;
     if (rt.outsideSince == null) rt.outsideSince = nowMs;
-    if (g.in && g.status === 'in' && nowMs - rt.outsideSince >= w.leaveConfirmMin * 60000) {
+    if (g.status === 'in' && nowMs - rt.outsideSince >= w.leaveConfirmMin * 60000) {
       const dep = rt.outsideSince, depMin = minOfDay(dep), at = t(dep);
-      if (!g.trips.length && depMin - toMin(g.in) <= w.tripWindowMin) {
-        g.trips.push({ start: at, end: null }); g.status = 'trip';
-        ev.push({ t: at, text: 'Rời chỗ làm trong ' + w.tripWindowMin + ' phút đầu → đi công tác' });
-      } else if (depMin >= toMin(w.afternoonCutoff)) {
+      const inRef = g.in || manualIn;
+      if (depMin >= toMin(w.afternoonCutoff)) {
         g.out = at; g.status = 'left';
         ev.push({ t: at, text: 'Rời chỗ làm sau ' + w.afternoonCutoff + ' → check out (GPS)' });
+      } else if (!g.trips.length && inRef && depMin - toMin(inRef) <= w.tripWindowMin) {
+        g.trips.push({ start: at, end: null }); g.status = 'trip';
+        ev.push({ t: at, text: 'Rời chỗ làm trong ' + w.tripWindowMin + ' phút đầu → đi công tác' });
       } else {
         g.status = 'out';
         ev.push({ t: at, text: 'Ra ngoài (chưa tính check out)' });
@@ -218,24 +224,34 @@ function gpsStep(rt, g, inside, nowMs, settings) {
   return ev;
 }
 
+const SIGNAL_LABEL = { enter: 'vào vùng', dwell: 'ở lại trong vùng', exit: 'ra khỏi vùng' };
+const fmtDist = m => m >= 1000 ? (Math.round(m / 100) / 10).toLocaleString('vi-VN') + ' km' : Math.round(m) + ' m';
+
 /* Phát lại sự kiện geofence do Android ghi khi app đang tắt.
-   events: [{type:'enter'|'dwell'|'exit', time: ms}]; rtByDay: {key: {insideSince, outsideSince}}
-   getGps(key) trả về object rec.gps của ngày đó (tạo nếu chưa có). Trả về [{key, t, text}]. */
-function geofenceReplay(events, rtByDay, getGps, settings) {
+   events: [{type:'enter'|'dwell'|'exit', time, dist?, acc?, fresh?, rejected?, src?}]
+   rtByDay: {key: {insideSince, outsideSince}}; getRec(key) trả về bản ghi ngày (tạo nếu chưa có).
+   Trả về [{key, kind:'event'|'signal', t, text, ...}]. Tín hiệu bị Android báo nhầm (rejected) chỉ được ghi lại, không tính công. */
+function geofenceReplay(events, rtByDay, getRec, settings) {
   const out = [], w = settings.work;
   const list = events.slice().sort((a, b) => a.time - b.time);
   for (const e of list) {
     const key = dateKey(new Date(e.time));
     const rt = rtByDay[key] || (rtByDay[key] = { insideSince: null, outsideSince: null });
-    const g = getGps(key);
-    const push = evs => evs.forEach(x => out.push({ key, t: x.t, text: x.text }));
-    if (e.type === 'enter') push(gpsStep(rt, g, true, e.time, settings));
+    const rec = getRec(key);
+    const g = rec.gps || (rec.gps = {});
+    const where = e.dist != null ? 'cách ' + fmtDist(e.dist) + (e.acc != null ? ' (±' + fmtDist(e.acc) + ')' : '') : 'không rõ vị trí';
+    out.push({ key, kind: 'signal', t: fromMin(minOfDay(e.time)), type: e.type, rejected: !!e.rejected, src: e.src || 'geofence',
+      text: (SIGNAL_LABEL[e.type] || e.type) + ' · ' + where + (e.rejected ? ' · bỏ qua vì vị trí thực không ở chỗ làm' : '') + (e.src === 'recheck' ? ' · app tự kiểm tra lại' : '') });
+    if (e.rejected) continue;
+    const push = evs => evs.forEach(x => out.push({ key, kind: 'event', t: x.t, text: x.text }));
+    const mi = rec.manualIn || null;
+    if (e.type === 'enter') push(gpsStep(rt, g, true, e.time, settings, mi));
     else if (e.type === 'dwell') {
       if (rt.insideSince == null) rt.insideSince = e.time - w.dwellMin * 60000;
-      push(gpsStep(rt, g, true, e.time, settings));
+      push(gpsStep(rt, g, true, e.time, settings, mi));
     } else if (e.type === 'exit') {
-      push(gpsStep(rt, g, false, e.time, settings));
-      push(gpsStep(rt, g, false, e.time + w.leaveConfirmMin * 60000, settings));
+      push(gpsStep(rt, g, false, e.time, settings, mi));
+      push(gpsStep(rt, g, false, e.time + w.leaveConfirmMin * 60000, settings, mi));
     }
   }
   return out;
