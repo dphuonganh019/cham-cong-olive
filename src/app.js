@@ -113,14 +113,15 @@ function renderToday() {
   $('#slotIn').classList.toggle('set', !!r.inHM);
   $('#slotOut').classList.toggle('set', !!r.outHM);
   $('#inSrc').textContent = r.inSrc === 'manual' ? 'Bạn bấm' + (g.in && g.in !== r.inHM ? ' · GPS ' + g.in : '') : r.inSrc === 'gps' ? 'GPS ghi nhận' : 'Chưa có';
-  $('#outSrc').textContent = r.outSrc === 'manual' ? 'Bạn bấm' + (g.out && g.out !== r.outHM ? ' · GPS ' + g.out : '') : r.outSrc === 'gps' ? 'GPS ghi nhận' : 'Chưa có';
+  $('#outSrc').textContent = r.provisionalOut ? 'Đã rời công ty · nếu không quay lại sẽ là giờ ra' : r.outSrc === 'manual' ? 'Bạn bấm' + (g.out && g.out !== r.outHM ? ' · GPS ' + g.out : '') : r.outSrc === 'gps' ? 'GPS ghi nhận' : 'Chưa có';
   $('#workedToday').textContent = fmtH(r.workedMin);
   const otTxt = r.ot150 ? `<span class="pill r150">OT 150%: ${fmtH(r.ot150)}</span>` : r.ot200 ? `<span class="pill r200">200%: ${fmtH(r.ot200)}</span>` : r.ot300 ? `<span class="pill r300">300%: ${fmtH(r.ot300)}</span>` : (r.dt.type !== 'weekday' ? `<span class="pill">${esc(r.dt.label)}</span>` : '');
   $('#otToday').innerHTML = otTxt;
 
   const st = $('#todayStatus');
   let cls = '', txt = 'Chưa check in';
-  if (r.outHM) { cls = 'done'; txt = 'Đã check out'; }
+  if (r.provisionalOut) { cls = 'trip'; txt = 'Đã rời công ty'; }
+  else if (r.outHM) { cls = 'done'; txt = 'Đã check out'; }
   else if (g.status === 'trip' && !r.outHM) { cls = 'trip'; txt = 'Đang công tác'; }
   else if (r.inHM) { cls = 'in'; txt = 'Đang làm việc'; }
   st.className = 'pill ' + cls; st.textContent = txt;
@@ -136,6 +137,7 @@ function renderToday() {
   const tl = $('#timeline'), evs = (rec.events || []).slice().sort((a, b) => a.t < b.t ? -1 : 1);
   tl.innerHTML = evs.length ? evs.map(e => `<li><time>${esc(e.t)}</time><span>${esc(e.text)}</span></li>`).join('')
     : `<li style="display:block"><div class="empty small">Chưa có sự kiện nào. Bấm Check in khi tới chỗ làm, hoặc để GPS tự ghi nhận.</div></li>`;
+  syncTodayToNative();
   const sg = (rec.signals || []).slice().sort((a, b) => a.t < b.t ? -1 : 1);
   $('#signals').hidden = !sg.length;
   $('#signalList').innerHTML = sg.map(s => `<li class="${s.rejected ? 'rej' : ''}"><time>${esc(s.t)}</time><span>${esc(s.text)}</span></li>`).join('');
@@ -234,43 +236,84 @@ async function syncGeofenceEvents() {
   const lastEv = out.filter(x => x.kind === 'event').pop();
   if (lastEv) toast(lastEv.text);
 }
+const TRACK_MODE = {
+  waiting: 'Đang chờ bạn tới công ty',
+  arriving: 'Đã tới công ty, đang xác nhận đủ 5 phút',
+  inside: 'Đang ở công ty, sẽ ghi giờ ra khi bạn rời đi',
+  outside: 'Đã rời công ty, đang theo dõi xem bạn có quay lại không',
+};
 function nativeCard(st) {
-  const o = settings.office;
+  const o = settings.office, w = settings.work;
   const btn = (id, label) => `<button class="btn sm" id="${id}" style="margin-top:8px">${label}</button>`;
   if (o.lat == null || o.lng == null) return gpsUI('idle', 'Chưa có toạ độ chỗ làm. Vào <b>Cài đặt</b> → "Lấy vị trí hiện tại" khi đang ở công ty.');
   if (!st.fine) return gpsUI('off', 'App cần quyền vị trí để tự chấm công.<br>' + btn('gpPermFine', 'Cấp quyền vị trí'));
   if (!st.background) return gpsUI('off', 'Để chấm công khi app đã tắt, chọn <b>"Cho phép mọi lúc"</b> trong quyền vị trí.<br>' + btn('gpPermBg', 'Mở cài đặt quyền vị trí'));
-  const extra = st.batteryOptimized ? '<br><span class="small">Máy đang tối ưu pin cho app, Android có thể chặn chấm công nền.</span><br>' + btn('gpBattery', 'Tắt tối ưu pin cho app') : '';
-  gpsUI(st.registered ? 'on' : 'idle', (st.registered
-    ? `Đang tự chấm công nền quanh <b>${esc(o.name || 'chỗ làm')}</b> (bán kính ${o.radius} m), kể cả khi app đã tắt.`
-    : 'Chưa đăng ký được vùng chấm công. Thử bật Vị trí (GPS) trên máy rồi mở lại app.') + extra);
-  $('#gpsPill').textContent = st.registered ? 'Chạy nền' : 'Chưa bật';
+  const t = st.tracking || {};
+  const where = t.wifi ? 'thấy Wi-Fi công ty' : t.dist >= 0 ? 'cách công ty ' + fmtDist(t.dist) : '';
+  const when = t.at ? ' (lúc ' + fromMin(minOfDay(t.at)) + ')' : '';
+  let html, state;
+  if (t.running) {
+    state = 'on';
+    const lbl = t.mode === 'waiting' && recFor(todayKey()) && computeDay(todayKey(), recFor(todayKey()), settings).inHM
+      ? 'Đã check in, sẽ ghi giờ ra khi bạn rời công ty' : (TRACK_MODE[t.mode] || 'Đang theo dõi');
+    html = `<b>${lbl}</b>${where ? '<br>' + esc(where) + when : ''}<br><span class="small muted">Thông báo im lặng trên thanh trạng thái sẽ tự tắt khi bạn check out.</span><br>` + btn('gpTrackOff', 'Tắt theo dõi hôm nay');
+  } else if (t.done) {
+    state = 'idle';
+    html = 'Đã dừng theo dõi chủ động hôm nay. Vùng chấm công vẫn chạy làm dự phòng.<br>' + btn('gpTrackOn', 'Bật lại hôm nay');
+  } else if (t.shouldTrack) {
+    state = 'idle';
+    html = 'Chưa bật được theo dõi chủ động.<br>' + btn('gpTrackOn', 'Bật ngay');
+  } else {
+    state = st.registered ? 'on' : 'idle';
+    html = `Ngoài khung theo dõi (${esc(w.trackStart)}–${esc(w.trackEnd)} các ngày làm việc). App sẽ tự bật lúc ${esc(w.trackStart)} ngày làm việc tới; ngoài giờ đó vẫn có vùng chấm công làm dự phòng.`;
+  }
+  const nets = st.wifiNetworks || [];
+  html += `<br><span class="small muted">${nets.length ? 'Wi-Fi công ty: ' + esc(nets.map(n => n.ssid).slice(0, 3).join(', ')) + (nets.length > 3 ? '…' : '') : 'Chưa ghi nhận Wi-Fi công ty (vào Cài đặt khi đang ở công ty).'}</span>`;
+  if (st.batteryOptimized) html += '<br><span class="small">Máy đang tối ưu pin cho app, Android có thể chặn chấm công nền.</span><br>' + btn('gpBattery', 'Tắt tối ưu pin cho app');
+  gpsUI(state, html);
+  $('#gpsPill').textContent = t.running ? 'Đang theo dõi' : st.registered ? 'Chạy nền' : 'Chưa bật';
 }
 function bindNativeButtons() {
   const on = (id, fn) => { const b = document.getElementById(id); if (b) b.onclick = fn; };
   on('gpPermFine', async () => { try { await Native.geo.requestLocation(); } catch (e) {} startNativeGeofence(); });
   on('gpPermBg', async () => { try { await Native.geo.requestBackground(); } catch (e) {} setTimeout(startNativeGeofence, 800); });
   on('gpBattery', async () => { try { await Native.geo.openBatterySettings(); } catch (e) {} });
+  on('gpTrackOff', async () => { try { nativeCard(await Native.geo.tracking({ action: 'off' })); bindNativeButtons(); toast('Đã tắt theo dõi hôm nay'); } catch (e) {} });
+  on('gpTrackOn', async () => { try { nativeCard(await Native.geo.tracking({ action: 'resume' })); bindNativeButtons(); } catch (e) {} });
+}
+async function refreshNative() {
+  if (!NATIVE || !Native.geo) return;
+  try { nativeCard(await Native.geo.getStatus()); bindNativeButtons(); } catch (e) {}
+}
+let lastTodaySig = '';
+function syncTodayToNative() {
+  if (!NATIVE || !ready || !Native.geo) return;
+  const key = todayKey(), r = computeDay(key, recFor(key) || {}, settings);
+  const out = r.outHM && !r.provisionalOut ? r.outHM : '';
+  const sig = key + '|' + (r.inHM || '') + '|' + out;
+  if (sig === lastTodaySig) return;
+  lastTodaySig = sig;
+  Native.geo.setToday({ date: key, in: r.inHM || '', out }).catch(() => { lastTodaySig = ''; });
 }
 async function startNativeGeofence() {
-  const o = settings.office;
+  const o = settings.office, w = settings.work;
   $('#wakeLock').closest('label').hidden = true;
+  if (!Native.geo) { gpsUI('off', 'Không kết nối được phần chấm công nền của Android. Nút Check in / Check out vẫn dùng bình thường.'); return; }
   let st = { fine: false, background: false, registered: false };
   try {
     if (o.lat != null && o.lng != null) {
-      st = await Native.geo.configure({ lat: +o.lat, lng: +o.lng, radius: +o.radius, dwellMin: +settings.work.dwellMin, name: o.name || 'chỗ làm' });
+      st = await Native.geo.configure({
+        lat: +o.lat, lng: +o.lng, radius: +o.radius, dwellMin: +w.dwellMin, name: o.name || 'chỗ làm',
+        trackStart: w.trackStart, trackEnd: w.trackEnd, cutoff: w.afternoonCutoff, tripWindow: +w.tripWindowMin,
+        offDays: settings.holidays.map(h => h.date),
+      });
     } else { st = await Native.geo.getStatus(); }
   } catch (e) { gpsUI('off', 'Không khởi động được chấm công nền: ' + esc(e && e.message || e)); return; }
   nativeCard(st); bindNativeButtons();
   await syncGeofenceEvents();
+  syncTodayToNative();
   clearInterval(gpsTimer);
-  gpsTimer = setInterval(syncGeofenceEvents, 60000);
-  if (st.fine && o.lat != null && 'geolocation' in navigator) {
-    navigator.geolocation.getCurrentPosition(p => {
-      const d = distanceM(p.coords.latitude, p.coords.longitude, +o.lat, +o.lng);
-      const el = $('#gpsText'); if (el) el.insertAdjacentHTML('beforeend', `<br><span class="small muted">Hiện cách chỗ làm khoảng ${Math.round(d)} m.</span>`);
-    }, () => {}, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
-  }
+  gpsTimer = setInterval(async () => { await syncGeofenceEvents(); refreshNative(); }, 30000);
 }
 
 let wakeSentinel = null;
@@ -335,7 +378,7 @@ function renderMonth(M) {
       <td class="sticky"><b>${fmtDM(r.key)}</b> <span class="muted">${DOW[r.dt.dow]}</span>${warn}</td>
       <td>${typePill(r)}</td>
       <td class="mono">${r.inHM ? esc(r.inHM) + `<span class="srcdot ${r.inSrc}"></span>` + rnote(r.inHM, r.inR) : dash()}</td>
-      <td class="mono">${r.outHM ? esc(r.outHM) + `<span class="srcdot ${r.outSrc}"></span>` + rnote(r.outHM, r.outR) : (r.live ? '<span class="muted">đang làm</span>' : dash())}</td>
+      <td class="mono">${r.outHM ? esc(r.outHM) + `<span class="srcdot ${r.outSrc}"></span>` + (r.provisionalOut ? '<span class="muted small"> (tạm)</span>' : '') + rnote(r.outHM, r.outR) : (r.live ? '<span class="muted">đang làm</span>' : dash())}</td>
       <td class="n">${r.lunchMin ? r.lunchMin + "'" : dash()}</td>
       <td class="n">${r.workedMin ? fmtH(r.workedMin) : dash()}</td>
       <td class="n">${cong ? cong.toLocaleString('vi-VN') : dash()}</td>
@@ -477,6 +520,9 @@ function renderSettings() {
   $('#wRoundMin').value = w.roundMin; $('#wRoundMode').value = w.roundMode;
   const sel = $('#wStd'); if (![...sel.options].some(op => op.value === String(w.stdDaysMode))) sel.add(new Option(w.stdDaysMode + ' công', w.stdDaysMode)); sel.value = String(w.stdDaysMode);
   renderHolidays();
+  $('#autoCard').hidden = !NATIVE;
+  $('#wTrackStart').value = w.trackStart; $('#wTrackEnd').value = w.trackEnd;
+  if (NATIVE && Native.geo) Native.geo.getStatus().then(st => renderWifiList(st.wifiNetworks || [], st.wifiCanScan)).catch(() => {});
   $('#backupNote').textContent = Store.mode === 'cloud'
     ? 'Dữ liệu của bạn được lưu riêng theo tài khoản claude.ai, người khác mở trang này không thấy. Bạn có thể tải file sao lưu để giữ thêm một bản.'
     : NATIVE ? 'Dữ liệu được lưu trong app trên điện thoại này. Hãy tải file sao lưu định kỳ; khi đổi máy, cài app rồi nhập lại file sao lưu.'
@@ -502,11 +548,32 @@ function readSettingsForm() {
   w.leaveConfirmMin = Math.max(1, num($('#wLeave').value, 3)); w.otBlockMin = Math.max(1, num($('#wBlock').value, 30));
   w.roundMin = Math.max(1, num($('#wRoundMin').value, 15)); w.roundMode = $('#wRoundMode').value || 'company';
   w.stdDaysMode = $('#wStd').value;
+  w.trackStart = $('#wTrackStart').value || '05:30'; w.trackEnd = $('#wTrackEnd').value || '20:00';
   saveSettings();
   $('#mapLink').href = o.lat != null ? `https://www.google.com/maps?q=${o.lat},${o.lng}` : 'https://maps.google.com';
 }
-['#setName', '#offName', '#offLat', '#offLng', '#offRadius', '#wLunchStart', '#wLunchEnd', '#wSat', '#wCutoff', '#wTrip', '#wDwell', '#wLeave', '#wBlock', '#wRoundMin', '#wRoundMode', '#wStd']
-  .forEach(s => $(s).addEventListener('change', () => { readSettingsForm(); if (['#offLat', '#offLng', '#offRadius'].includes(s)) startGps(); toast('Đã lưu cài đặt'); }));
+['#setName', '#offName', '#offLat', '#offLng', '#offRadius', '#wLunchStart', '#wLunchEnd', '#wSat', '#wCutoff', '#wTrip', '#wDwell', '#wLeave', '#wBlock', '#wRoundMin', '#wRoundMode', '#wStd', '#wTrackStart', '#wTrackEnd']
+  .forEach(s => $(s).addEventListener('change', () => { readSettingsForm(); if (['#offLat', '#offLng', '#offRadius', '#wTrackStart', '#wTrackEnd', '#wCutoff', '#wDwell', '#wTrip'].includes(s)) startGps(); toast('Đã lưu cài đặt'); }));
+function renderWifiList(nets, canScan) {
+  $('#wifiList').innerHTML = nets.length
+    ? 'Đã ghi nhận: ' + nets.map(n => '<b>' + esc(n.ssid) + '</b>').join(', ')
+    : (canScan === false ? '<span style="color:var(--warn)">Wi-Fi đang tắt. Bật Wi-Fi (không cần kết nối) rồi bấm ghi nhận.</span>' : '<span class="muted">Chưa ghi nhận mạng nào.</span>');
+}
+$('#wifiLearnBtn').addEventListener('click', async () => {
+  if (!NATIVE || !Native.geo) return;
+  const b = $('#wifiLearnBtn'); b.disabled = true; b.textContent = 'Đang quét Wi-Fi…';
+  try {
+    const res = await Native.geo.learnWifi();
+    const nets = res.networks || [];
+    renderWifiList(nets, true);
+    toast(nets.length ? 'Đã ghi nhận ' + nets.length + ' mạng Wi-Fi công ty' : 'Không thấy Wi-Fi nào đủ mạnh. Thử lại khi ở gần điểm phát hơn.');
+  } catch (e) { toast((e && e.message) || 'Không quét được Wi-Fi'); }
+  b.disabled = false; b.textContent = 'Ghi nhận Wi-Fi công ty';
+});
+$('#wifiClearBtn').addEventListener('click', async () => {
+  if (!NATIVE || !Native.geo) return;
+  try { const st = await Native.geo.clearWifi(); renderWifiList(st.wifiNetworks || [], st.wifiCanScan); toast('Đã xoá Wi-Fi công ty'); } catch (e) {}
+});
 $('#useHereBtn').addEventListener('click', () => {
   if (!('geolocation' in navigator)) { toast('Thiết bị không hỗ trợ GPS'); return; }
   toast('Đang lấy vị trí…');

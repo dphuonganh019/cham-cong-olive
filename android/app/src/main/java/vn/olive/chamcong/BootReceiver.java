@@ -12,6 +12,8 @@ public class BootReceiver extends BroadcastReceiver {
         if (Intent.ACTION_BOOT_COMPLETED.equals(a) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(a)
             || "android.intent.action.LOCKED_BOOT_COMPLETED".equals(a)) {
             final PendingResult pending = goAsync();
+            TrackingScheduler.scheduleNext(context);
+            TrackingScheduler.maybeStart(context);
             GeofenceStore.register(context, false, (ok, err) -> pending.finish());
         }
     }

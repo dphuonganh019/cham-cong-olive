@@ -56,7 +56,7 @@ public class RecheckReceiver extends BroadcastReceiver {
         final String stage = intent.getStringExtra("stage") != null ? intent.getStringExtra("stage") : STAGE_ENTER;
         final int attempt = intent.getIntExtra("attempt", 1);
         GeofenceStore.prefs(c).edit().putBoolean("recheckActive", false).apply();
-        if (!GeofenceStore.hasConfig(c)) return;
+        if (!GeofenceStore.hasConfig(c) || TrackingService.running) return;
         final PendingResult pr = goAsync();
         LocationCheck.fresh(c, null, (loc, fresh) -> {
             try { handle(c, stage, attempt, loc, fresh); }

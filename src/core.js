@@ -57,6 +57,10 @@ const DEFAULT_SETTINGS = () => ({
     roundMode: 'down',       // 'down' = làm tròn xuống cả vào và ra (6:07→6:00, 6:47→6:45); 'company' = vào lên/ra xuống; 'nearest'; 'none'
     roundRule: 2,
     stdDaysMode: 'auto',     // 'auto' = số ngày T2–T7 của tháng, hoặc số cố định
+    congUnitMin: 60,         // công tính theo giờ chẵn: mỗi giờ đủ = 1/8 công (T7: 1/giờ chuẩn T7)
+    tripFullDayHours: 7,     // ngày có đi công tác, làm đủ 7 tiếng = 1 công
+    trackStart: '05:30',     // bắt đầu chờ check in mỗi ngày làm việc
+    trackEnd: '20:00',       // dừng theo dõi nếu đã rời công ty mà không quay lại
   },
   salaries: [],              // {id, from:'YYYY-MM-DD', amount, status:'probation'|'official'}
   holidays: DEFAULT_HOLIDAYS.map(h => ({ ...h })),
@@ -80,11 +84,14 @@ function computeDay(key, rec, settings, opts) {
   const dt = dayType(key, settings.holidays);
   const g = (rec && rec.gps) || {};
   const inHM = (rec && rec.manualIn) || g.in || null;
-  const outHM = (rec && rec.manualOut) || g.out || null;
+  // Rời chỗ làm trước giờ chốt và chưa quay lại (ca sáng, về sớm): lúc rời đi tạm tính là giờ ra
+  const leftEarly = !(rec && rec.manualOut) && !g.out && g.status === 'out' && g.lastLeave ? g.lastLeave : null;
+  const outHM = (rec && rec.manualOut) || g.out || leftEarly || null;
   const r = {
     key, dt, inHM, outHM,
     inSrc: rec && rec.manualIn ? 'manual' : (g.in ? 'gps' : null),
-    outSrc: rec && rec.manualOut ? 'manual' : (g.out ? 'gps' : null),
+    outSrc: rec && rec.manualOut ? 'manual' : (g.out || leftEarly ? 'gps' : null),
+    provisionalOut: !!leftEarly,
     trips: g.trips || [], note: (rec && rec.note) || '',
     trip: !!((g.trips && g.trips.length) || (rec && rec.manualTrip)),
     workedMin: 0, lunchMin: 0, regularMin: 0, cong: 0, paidCong: 0,
@@ -114,7 +121,11 @@ function computeDay(key, rec, settings, opts) {
   if (dt.type === 'weekday' || dt.type === 'saturday') {
     const std = dt.type === 'saturday' ? (+w.satStdHours) * 60 : 480;
     r.regularMin = Math.min(r.workedMin, std);
-    r.cong = Math.round(Math.min(1, r.workedMin / std) * 100) / 100;
+    // Công theo giờ chẵn: 4h45 vẫn là 4 giờ = 0,5 công; ngày công tác đủ 7 tiếng = 1 công
+    const unit = Math.max(1, +w.congUnitMin || 60);
+    const counted = Math.floor(r.workedMin / unit) * unit;
+    r.cong = Math.min(1, counted / std);
+    if (dt.type === 'weekday' && r.trip && r.workedMin >= (+w.tripFullDayHours || 7) * 60) r.cong = 1;
     r.rawExtra = Math.max(0, r.workedMin - std);
     r.ot150 = floorB(r.rawExtra);
   } else if (dt.type === 'sunday' || dt.type === 'comp') {
@@ -200,6 +211,7 @@ function gpsStep(rt, g, inside, nowMs, settings, manualIn) {
         ev.push({ t: at, text: 'Quay lại chỗ làm' });
       }
       g.status = 'in';
+      g.lastLeave = null;
     }
   } else {
     // Vừa ra khỏi vùng: chốt trước khoảng thời gian vừa ở trong (phòng khi chưa có tín hiệu "ở lại")
@@ -216,14 +228,15 @@ function gpsStep(rt, g, inside, nowMs, settings, manualIn) {
         g.trips.push({ start: at, end: null }); g.status = 'trip';
         ev.push({ t: at, text: 'Rời chỗ làm trong ' + w.tripWindowMin + ' phút đầu → đi công tác' });
       } else {
-        g.status = 'out';
-        ev.push({ t: at, text: 'Ra ngoài (chưa tính check out)' });
+        g.status = 'out'; g.lastLeave = at;
+        ev.push({ t: at, text: 'Rời chỗ làm lúc ' + at + ' → nếu không quay lại sẽ tính là giờ ra' });
       }
     }
   }
   return ev;
 }
 
+const PUNCH_SRC = { widget: 'widget', notification: 'thông báo' };
 const SIGNAL_LABEL = { enter: 'vào vùng', dwell: 'ở lại trong vùng', exit: 'ra khỏi vùng' };
 const fmtDist = m => m >= 1000 ? (Math.round(m / 100) / 10).toLocaleString('vi-VN') + ' km' : Math.round(m) + ' m';
 
@@ -239,16 +252,32 @@ function geofenceReplay(events, rtByDay, getRec, settings) {
     const rt = rtByDay[key] || (rtByDay[key] = { insideSince: null, outsideSince: null });
     const rec = getRec(key);
     const g = rec.gps || (rec.gps = {});
+    if (e.type === 'punch') {               // bấm Check in / Check out trên widget hoặc thông báo
+      const hm = fromMin(minOfDay(e.time)), from = PUNCH_SRC[e.src] || 'widget';
+      if (e.kind === 'in' && !rec.manualIn) {
+        rec.manualIn = hm;
+        out.push({ key, kind: 'event', t: hm, text: 'Bấm check in trên ' + from });
+      } else if (e.kind === 'in') {
+        out.push({ key, kind: 'event', t: hm, text: 'Bấm check in trên ' + from + ' (bỏ qua vì đã có giờ vào ' + rec.manualIn + ')' });
+      } else if (e.kind === 'out') {
+        const was = rec.manualOut;
+        rec.manualOut = hm;
+        out.push({ key, kind: 'event', t: hm, text: 'Bấm check out trên ' + from + (was ? ' (trước đó ' + was + ')' : '') });
+      }
+      continue;
+    }
     const where = e.dist != null ? 'cách ' + fmtDist(e.dist) + (e.acc != null ? ' (±' + fmtDist(e.acc) + ')' : '') : 'không rõ vị trí';
     out.push({ key, kind: 'signal', t: fromMin(minOfDay(e.time)), type: e.type, rejected: !!e.rejected, src: e.src || 'geofence',
-      text: (SIGNAL_LABEL[e.type] || e.type) + ' · ' + where + (e.rejected ? ' · bỏ qua vì vị trí thực không ở chỗ làm' : '') + (e.src === 'recheck' ? ' · app tự kiểm tra lại' : '') });
-    if (e.rejected) continue;
+      text: (SIGNAL_LABEL[e.type] || e.type) + ' · ' + where + (e.rejected ? ' · bỏ qua vì vị trí thực không ở chỗ làm' : '') + (e.src === 'recheck' ? ' · app tự kiểm tra lại' : '') + (e.src === 'service' ? ' · theo dõi chủ động' : '') + (e.wifi ? ' · thấy Wi-Fi công ty' : '') + (e.info ? ' · chỉ tham khảo' : '') });
+    if (e.rejected || e.info) continue;
     const push = evs => evs.forEach(x => out.push({ key, kind: 'event', t: x.t, text: x.text }));
     const mi = rec.manualIn || null;
     if (e.type === 'enter') push(gpsStep(rt, g, true, e.time, settings, mi));
     else if (e.type === 'dwell') {
       if (rt.insideSince == null) rt.insideSince = e.time - w.dwellMin * 60000;
-      push(gpsStep(rt, g, true, e.time, settings, mi));
+      // Bạn bấm "Xác nhận" trên thông báo trước khi đủ 5 phút: coi như đã ở đủ, giờ vào vẫn là lúc tới
+      const vt = e.force ? Math.max(e.time, rt.insideSince + w.dwellMin * 60000) : e.time;
+      push(gpsStep(rt, g, true, vt, settings, mi));
     } else if (e.type === 'exit') {
       push(gpsStep(rt, g, false, e.time, settings, mi));
       push(gpsStep(rt, g, false, e.time + w.leaveConfirmMin * 60000, settings, mi));

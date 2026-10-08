@@ -122,6 +122,23 @@
         </div>
         <p class="small muted" style="margin-bottom:0">Mẹo: mở Google Maps, nhấn giữ vào toà nhà công ty, sao chép 2 số toạ độ và dán vào đây. <a id="mapLink" href="https://maps.google.com" target="_blank" rel="noopener">Xem vị trí đã lưu trên bản đồ</a></p>
       </div>
+      <div class="card" id="autoCard" hidden>
+        <h3>Tự động chấm công</h3>
+        <p class="small muted" style="margin:6px 0 0">Mỗi ngày làm việc, app chờ bạn tới công ty từ giờ bắt đầu (muộn nhất tới giờ chốt check out), rồi theo dõi nhẹ cho tới khi bạn về. Trong lúc đó có một thông báo im lặng trên thanh trạng thái.</p>
+        <div class="fields" style="margin-top:12px">
+          <label class="f">Bắt đầu chờ check in lúc<input type="time" id="wTrackStart"></label>
+          <label class="f">Dừng theo dõi muộn nhất lúc<input type="time" id="wTrackEnd"><span class="hint">Khi bạn đã rời công ty mà không quay lại</span></label>
+        </div>
+        <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px">
+          <span class="src">Wi-Fi công ty</span>
+          <p class="small muted" style="margin:0">Bấm khi đang ở công ty để app ghi nhận các mạng Wi-Fi ở đó. Điện thoại không cần kết nối, chỉ cần bật Wi-Fi (hoặc bật "Quét Wi-Fi" trong cài đặt Vị trí). App nhận ra bạn tới công ty nhanh và chắc hơn, kể cả khi ở trong toà nhà.</p>
+          <div id="wifiList" class="small"></div>
+          <div class="row">
+            <button class="btn sm" id="wifiLearnBtn">Ghi nhận Wi-Fi công ty</button>
+            <button class="btn sm ghost" id="wifiClearBtn">Xoá</button>
+          </div>
+        </div>
+      </div>
       <div class="card">
         <h3>Quy tắc tính công</h3>
         <div class="fields" style="margin-top:12px">

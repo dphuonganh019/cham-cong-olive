@@ -132,3 +132,91 @@ test('Bấm check in tay rồi đi công tác trong giờ đầu: GPS vẫn ghi 
   assert.equal(g.in ?? null, null);
   assert.equal(g.trips[0].start, '07:20');
 });
+
+test('Công theo giờ chẵn: 4h45 = 0,5; 7h = 0,875; ngày công tác đủ 7 tiếng = 1 công', () => {
+  // 08:00–12:45 không qua giờ trưa → 4h45
+  assert.equal(day('08:00', '12:45').cong, 0.5);
+  // đi muộn 09:40–17:30 → làm tròn 09:30–17:30, trừ trưa → 7h
+  assert.equal(day('09:40', '17:30').cong, 0.875);
+  // ca sáng 07:58–12:02 → 07:45–12:00 = 4h15 → 0,5
+  assert.equal(day('07:58', '12:02').cong, 0.5);
+  // ngày có đi công tác, 7h → 1 công; 6h45 → 0,75
+  const trip = (i, o) => computeDay('2026-10-06', { manualIn: i, manualOut: o, manualTrip: true }, S);
+  assert.equal(trip('09:30', '17:30').cong, 1);
+  assert.equal(trip('09:30', '17:15').cong, 0.75);
+  // thứ 7: đủ 4 tiếng = 1 công, 3 tiếng = 0,75
+  assert.equal(day('08:00', '12:00', '2026-10-10').cong, 1);
+  assert.equal(day('08:00', '11:30', '2026-10-10').cong, 0.75);
+});
+
+test('Ca chiều: tới 12:55 về 17:05 → 0,5 công', () => {
+  const r = day('12:55', '17:05');
+  assert.equal(r.inR, '12:45');
+  assert.equal(r.workedMin, 240);
+  assert.equal(r.cong, 0.5);
+});
+
+test('Ca sáng: rời 12:02 trước giờ chốt, không quay lại → 12:02 tạm tính là giờ ra', () => {
+  const { g } = replay([
+    { type: 'enter', time: at(6, 7, 58) }, { type: 'dwell', time: at(6, 8, 3) },
+    { type: 'exit', time: at(6, 12, 2) },
+  ]);
+  assert.equal(g.lastLeave, '12:02');
+  const r = computeDay('2026-10-06', { gps: g }, S);
+  assert.equal(r.outHM, '12:02');
+  assert.equal(r.provisionalOut, true);
+  assert.equal(r.cong, 0.5);
+});
+
+test('Đi ăn trưa rồi quay lại: không bị tính giờ ra', () => {
+  const { g } = replay([
+    { type: 'enter', time: at(6, 7, 58) }, { type: 'dwell', time: at(6, 8, 3) },
+    { type: 'exit', time: at(6, 12, 2) },
+    { type: 'enter', time: at(6, 12, 55) }, { type: 'dwell', time: at(6, 13, 0) },
+  ]);
+  assert.equal(g.lastLeave, null);
+  assert.equal(computeDay('2026-10-06', { gps: g }, S).outHM, null);
+});
+
+test('Bấm trên widget: check in rồi check out ghi đúng giờ bấm, tính như bấm tay', () => {
+  const days = { '2026-10-06': {} }, rt = {};
+  geofenceReplay([
+    { type: 'punch', kind: 'in', time: at(6, 6, 58), src: 'widget' },
+    { type: 'punch', kind: 'in', time: at(6, 7, 1), src: 'widget' },
+    { type: 'punch', kind: 'out', time: at(6, 17, 5), src: 'notification' },
+  ], rt, k => (days[k] = days[k] || {}), S);
+  assert.equal(days['2026-10-06'].manualIn, '06:58');
+  assert.equal(days['2026-10-06'].manualOut, '17:05');
+});
+
+test('Tín hiệu chỉ để tham khảo (info) không làm đổi trạng thái', () => {
+  const { g } = replay([{ type: 'enter', time: at(6, 7, 0), info: true }, { type: 'dwell', time: at(6, 7, 5), info: true }]);
+  assert.equal(g.status ?? null, null);
+});
+
+test('Bấm "Xác nhận 06:55" trên thông báo sau 2 phút: check in với giờ vào 06:55', () => {
+  const { g } = replay([
+    { type: 'enter', time: at(6, 6, 55), src: 'service' },
+    { type: 'dwell', time: at(6, 6, 57), src: 'service', force: true },
+  ]);
+  assert.equal(g.in, '06:55');
+  assert.equal(g.status, 'in');
+});
+
+test('Theo dõi chủ động: tới 06:55, đi công tác 07:03, về 16:50, rời 17:12 → vào 06:55, ra 17:12', () => {
+  const { g } = replay([
+    { type: 'enter', time: at(6, 6, 55), src: 'service' }, { type: 'dwell', time: at(6, 7, 0), src: 'service' },
+    { type: 'exit', time: at(6, 7, 3), src: 'service' },
+    { type: 'enter', time: at(6, 16, 50), src: 'service' }, { type: 'dwell', time: at(6, 16, 55), src: 'service' },
+    { type: 'exit', time: at(6, 17, 12), src: 'service' },
+  ]);
+  assert.equal(g.in, '06:55');
+  assert.equal(g.trips[0].start, '07:03');
+  assert.equal(g.trips[0].end, '16:50');
+  assert.equal(g.out, '17:12');
+  const r = computeDay('2026-10-06', { gps: g }, S);
+  assert.equal(r.cong, 1);
+  assert.equal(r.inR, '06:45');
+  assert.equal(r.outR, '17:00');
+  assert.equal(r.ot150, 60);
+});

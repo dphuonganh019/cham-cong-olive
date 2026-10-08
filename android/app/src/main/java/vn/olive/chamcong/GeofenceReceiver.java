@@ -48,6 +48,12 @@ public class GeofenceReceiver extends BroadcastReceiver {
 
     private static void handle(Context c, String type, long time, Location loc, boolean fresh) {
         JSONObject o = GeofenceStore.describe(c, type, time, loc, fresh, "geofence");
+        if (TrackingService.running) {
+            // Dịch vụ theo dõi chủ động đang chạy và chính xác hơn: tín hiệu vùng chỉ ghi lại để tham khảo
+            try { o.put("info", true); o.remove("rejected"); } catch (org.json.JSONException ignored) {}
+            GeofenceStore.appendEvent(c, o);
+            return;
+        }
         GeofenceStore.appendEvent(c, o);
         if (o.optBoolean("rejected", false)) {
             // Báo nhầm: tự kiểm tra lại để không bỏ lỡ lúc tới thật

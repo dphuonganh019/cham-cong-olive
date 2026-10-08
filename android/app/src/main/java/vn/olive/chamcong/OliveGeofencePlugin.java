@@ -18,8 +18,14 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
+import android.os.Handler;
+import android.os.Looper;
+
 import org.json.JSONArray;
 import org.json.JSONException;
+
+import java.util.HashSet;
+import java.util.Set;
 
 @CapacitorPlugin(
     name = "OliveGeofence",
@@ -44,6 +50,19 @@ public class OliveGeofencePlugin extends Plugin {
         }
         o.put("batteryOptimized", optimized);
         o.put("pending", GeofenceStore.events(c).length());
+        JSObject t = new JSObject();
+        t.put("running", TrackingService.running);
+        t.put("mode", GeofenceStore.prefs(c).getString("trkMode", "waiting"));
+        t.put("dist", GeofenceStore.prefs(c).getFloat("trkDist", -1f));
+        t.put("acc", GeofenceStore.prefs(c).getFloat("trkAcc", -1f));
+        t.put("at", GeofenceStore.prefs(c).getLong("trkAt", 0));
+        t.put("wifi", GeofenceStore.prefs(c).getBoolean("trkWifi", false));
+        t.put("done", DayState.isDone(c));
+        t.put("shouldTrack", DayState.shouldTrackNow(c));
+        t.put("exactAlarm", TrackingScheduler.exactAllowed(c));
+        o.put("tracking", t);
+        o.put("wifiCanScan", OfficeWifi.canScan(c));
+        try { o.put("wifiNetworks", new JSArray(OfficeWifi.savedNames(c).toString())); } catch (JSONException e) { o.put("wifiNetworks", new JSArray()); }
         return o;
     }
 
@@ -62,6 +81,14 @@ public class OliveGeofencePlugin extends Plugin {
         int dwellMin = (int) Math.round(d.optDouble("dwellMin", 5));
         String name = call.getString("name", "chỗ làm");
         boolean changed = GeofenceStore.saveConfig(getContext(), lat, lng, radius, dwellMin, name);
+        Set<String> off = new HashSet<>();
+        JSONArray offArr = d.optJSONArray("offDays");
+        if (offArr != null) for (int i = 0; i < offArr.length(); i++) off.add(offArr.optString(i));
+        DayState.saveSchedule(getContext(), d.optString("trackStart", "05:30"), d.optString("trackEnd", "20:00"),
+            d.optString("cutoff", "15:00"), off);
+        GeofenceStore.prefs(getContext()).edit().putInt("tripWindow", d.optInt("tripWindow", 60)).apply();
+        TrackingScheduler.scheduleNext(getContext());
+        TrackingScheduler.maybeStart(getContext());
         GeofenceStore.register(getContext(), changed, (ok, err) -> {
             JSObject s = status();
             if (err != null) s.put("error", err);
@@ -121,6 +148,48 @@ public class OliveGeofencePlugin extends Plugin {
             c.startActivity(i);
         }
         call.resolve();
+    }
+
+    /** App gửi giờ vào/ra hiệu lực của hôm nay để widget và thông báo hiển thị đúng. */
+    @PluginMethod
+    public void setToday(PluginCall call) {
+        JSObject d = call.getData();
+        DayState.setToday(getContext(), d.optString("date", ""), d.optString("in", ""), d.optString("out", ""));
+        TrackingService.send(getContext(), TrackingService.A_REFRESH);
+        call.resolve(status());
+    }
+
+    /** "off": dừng theo dõi hôm nay. "resume": bật lại hôm nay. */
+    @PluginMethod
+    public void tracking(PluginCall call) {
+        String action = call.getString("action", "");
+        if ("off".equals(action)) {
+            DayState.setDone(getContext(), true);
+            TrackingService.send(getContext(), TrackingService.A_OFF);
+        } else if ("resume".equals(action)) {
+            DayState.setDone(getContext(), false);
+            TrackingScheduler.maybeStart(getContext());
+        }
+        new Handler(Looper.getMainLooper()).postDelayed(() -> call.resolve(status()), 600);
+    }
+
+    /** Ghi nhận Wi-Fi công ty: quét rồi lưu các mạng mạnh nhất đang thấy. */
+    @PluginMethod
+    public void learnWifi(PluginCall call) {
+        if (!OfficeWifi.canScan(getContext())) { call.reject("Hãy bật Wi-Fi (không cần kết nối) rồi thử lại"); return; }
+        OfficeWifi.requestScan(getContext(), 0);
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            JSObject ret = new JSObject();
+            try { ret.put("networks", new JSArray(OfficeWifi.learn(getContext()).toString())); }
+            catch (JSONException e) { ret.put("networks", new JSArray()); }
+            call.resolve(ret);
+        }, 5000);
+    }
+
+    @PluginMethod
+    public void clearWifi(PluginCall call) {
+        OfficeWifi.clear(getContext());
+        call.resolve(status());
     }
 
     @PluginMethod

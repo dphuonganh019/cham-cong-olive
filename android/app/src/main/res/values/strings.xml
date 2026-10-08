@@ -4,4 +4,6 @@
     <string name="title_activity_main">Chấm Công Olive</string>
     <string name="package_name">vn.olive.chamcong</string>
     <string name="custom_url_scheme">vn.olive.chamcong</string>
+    <string name="widget_desc">Xem giờ vào/ra hôm nay và bấm check in, check out ngay</string>
+    <string name="widget_label">Chấm công</string>
 </resources>
