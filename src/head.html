@@ -41,6 +41,8 @@ button,input,select,textarea{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--olive);outline-offset:2px}
 
 /* Top bar */
+/* Opaque strip under the status bar so scrolled content never shows through it (Android edge-to-edge) */
+body::before{content:'';position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:7}
 .top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
 .top-in{max-width:980px;margin:0 auto;padding-inline:16px;padding-block:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:10px;margin-right:auto}

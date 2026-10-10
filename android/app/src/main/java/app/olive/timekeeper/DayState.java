@@ -48,13 +48,29 @@ final class DayState {
 
     /* ---------- Work schedule ---------- */
 
-    static void saveSchedule(Context c, String trackStart, String trackEnd, String cutoff, Set<String> offDays) {
+    static void saveSchedule(Context c, String trackStart, String trackEnd, String cutoff, Set<String> offDays,
+                             String lunchStart, String lunchEnd, int finalizeMin) {
         p(c).edit()
             .putInt("trackStart", toMin(trackStart, 5 * 60 + 30))
             .putInt("trackEnd", toMin(trackEnd, 20 * 60))
             .putInt("cutoff", toMin(cutoff, 15 * 60))
             .putStringSet("offDays", new HashSet<>(offDays))
+            .putInt("lunchStart", toMin(lunchStart, 12 * 60))
+            .putInt("lunchEnd", toMin(lunchEnd, 13 * 60))
+            .putInt("finalizeMin", Math.max(5, finalizeMin))
             .apply();
+    }
+
+    /**
+     * Left before the cutoff and not back: the minute of the day when the departure becomes the check-out.
+     * Same rule as leaveFinalMin() in src/core.js: wait finalizeMin (60) minutes, and when leaving from
+     * 30 minutes before lunch until lunch ends, wait until 30 minutes after lunch.
+     */
+    static int finalizeAtMin(Context c, int depMin) {
+        int ls = p(c).getInt("lunchStart", 12 * 60), le = p(c).getInt("lunchEnd", 13 * 60);
+        int at = depMin + p(c).getInt("finalizeMin", 60);
+        if (depMin >= ls - 30 && depMin < le) at = Math.max(at, le + 30);
+        return at;
     }
 
     static int trackStart(Context c) { return p(c).getInt("trackStart", 5 * 60 + 30); }
@@ -84,13 +100,15 @@ final class DayState {
         String today = dateKey(System.currentTimeMillis());
         if (!today.equals(p(c).getString("todayDate", ""))) {
             p(c).edit().putString("todayDate", today)
-                .remove("todayIn").remove("todayOut").remove("todayDone")
+                .remove("todayIn").remove("todayOut").remove("todayProv").remove("todayDone")
                 .remove("lastPunch").apply();
         }
     }
 
     static String todayIn(Context c) { rollDay(c); return p(c).getString("todayIn", ""); }
     static String todayOut(Context c) { rollDay(c); return p(c).getString("todayOut", ""); }
+    /** Provisional check-out: left before the cutoff and not back yet ("" if none). */
+    static String todayProv(Context c) { rollDay(c); return p(c).getString("todayProv", ""); }
     static boolean hasIn(Context c) { return !todayIn(c).isEmpty(); }
     static boolean hasOut(Context c) { return !todayOut(c).isEmpty(); }
     static boolean isDone(Context c) { rollDay(c); return p(c).getBoolean("todayDone", false); }
@@ -98,11 +116,39 @@ final class DayState {
     static void setDone(Context c, boolean done) { rollDay(c); p(c).edit().putBoolean("todayDone", done).apply(); }
 
     /** The app sends today's effective check-in/out times (manual or GPS). */
-    static void setToday(Context c, String date, String in, String out) {
+    static void setToday(Context c, String date, String in, String out, String prov) {
         rollDay(c);
         if (!date.equals(p(c).getString("todayDate", ""))) return;
-        p(c).edit().putString("todayIn", in == null ? "" : in).putString("todayOut", out == null ? "" : out).apply();
+        p(c).edit().putString("todayIn", in == null ? "" : in).putString("todayOut", out == null ? "" : out)
+            .putString("todayProv", out != null && !out.isEmpty() || prov == null ? "" : prov).apply();
         refreshWidgets(c);
+    }
+
+    static void setProv(Context c, String hm) {
+        rollDay(c);
+        p(c).edit().putString("todayProv", hm == null ? "" : hm).apply();
+        refreshWidgets(c);
+    }
+
+    /**
+     * Makes the provisional check-out the check-out (widget, notification, or the waiting time has passed).
+     * Queues a "finalize" event for the app and ends today. Returns the check-out time, or null if there was none.
+     */
+    static String finalizeLeave(Context c, long time, String src) {
+        String at = todayProv(c);
+        if (at.isEmpty() || hasOut(c)) return null;
+        JSONObject o = new JSONObject();
+        try {
+            o.put("type", "finalize");
+            o.put("time", time);
+            o.put("src", src);
+            o.put("at", at);
+        } catch (JSONException ignored) {}
+        GeofenceStore.appendEvent(c, o);
+        p(c).edit().putLong("lastPunch", time).apply();
+        setOut(c, at);
+        setDone(c, true);
+        return at;
     }
 
     static void setIn(Context c, String hm) {
@@ -113,7 +159,7 @@ final class DayState {
 
     static void setOut(Context c, String hm) {
         rollDay(c);
-        p(c).edit().putString("todayOut", hm).apply();
+        p(c).edit().putString("todayOut", hm).putString("todayProv", "").apply();
         refreshWidgets(c);
     }
 

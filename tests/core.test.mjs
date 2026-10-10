@@ -8,8 +8,8 @@ const ctx = {};
 vm.createContext(ctx);
 const src = f => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 vm.runInContext(src('core.js') + '\n' + src('i18n.js') +
-  ';this.X={computeDay,computeMonth,gpsStep,geofenceReplay,DEFAULT_SETTINGS,migrateHolidays,dayType,I18N,T,setLang,eventText,signalText,holidayName,dayLabel};', ctx);
-const { computeDay, computeMonth, geofenceReplay, DEFAULT_SETTINGS } = ctx.X;
+  ';this.X={computeDay,computeMonth,gpsStep,geofenceReplay,DEFAULT_SETTINGS,settleLeave,leaveFinalMin,migrateHolidays,dayType,I18N,T,setLang,eventText,signalText,holidayName,dayLabel};', ctx);
+const { computeDay, computeMonth, geofenceReplay, DEFAULT_SETTINGS, settleLeave, leaveFinalMin } = ctx.X;
 const S = DEFAULT_SETTINGS();
 const day = (i, o, key = '2026-10-06') => computeDay(key, { manualIn: i, manualOut: o }, S);
 const at = (d, h, m) => new Date(2026, 9, d, h, m).getTime();
@@ -220,6 +220,87 @@ test('Active tracking: arrive 06:55, trip 07:03, back 16:50, leave 17:12 → in 
   assert.equal(r.inR, '06:45');
   assert.equal(r.outR, '17:00');
   assert.equal(r.ot150, 60);
+});
+
+/* ===== Left early and not back: the provisional check-out becomes the check-out ===== */
+const fm = hm => { const m = leaveFinalMin(hm, S); return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
+
+test('waiting time: 60 minutes, or until 30 minutes after lunch when leaving around lunch', () => {
+  assert.equal(fm('10:00'), '11:00');
+  assert.equal(fm('11:29'), '12:29');
+  assert.equal(fm('11:55'), '13:30');
+  assert.equal(fm('12:08'), '13:30');
+  assert.equal(fm('12:59'), '13:59');
+  assert.equal(fm('14:10'), '15:10');
+});
+
+function leftAt1208() {
+  const days = { '2026-10-10': {} }, rt = {};
+  const get = k => (days[k] = days[k] || {});
+  geofenceReplay([
+    { type: 'enter', time: at(10, 7, 59), src: 'service' }, { type: 'dwell', time: at(10, 8, 4), src: 'service' },
+    { type: 'exit', time: at(10, 12, 8), src: 'service' },
+  ], rt, get, S);
+  return { days, rt, get, rec: days['2026-10-10'] };
+}
+
+test('Oct 10: left at 12:08 and not back → still provisional at 13:29, check-out 12:08 from 13:30', () => {
+  const { rec } = leftAt1208();
+  assert.equal(rec.gps.lastLeave, '12:08');
+  assert.deepEqual([...settleLeave(rec.gps, '2026-10-10', at(10, 13, 29), S)], []);
+  assert.equal(computeDay('2026-10-10', rec, S).provisionalOut, true);
+  const evs = settleLeave(rec.gps, '2026-10-10', at(10, 13, 31), S);
+  assert.equal(evs.length, 1);
+  assert.equal(evs[0].code, 'gps.leaveFinal');
+  assert.equal(evs[0].t, '13:30');
+  const r = computeDay('2026-10-10', rec, S);
+  assert.equal(r.outHM, '12:08');
+  assert.equal(r.provisionalOut, false);
+  assert.equal(r.outSrc, 'gps');
+  assert.equal(r.cong, 1);                 // Saturday: 07:45–12:00 = 4 h 15 → full Saturday workday
+});
+
+test('Confirming from the widget at 12:40 makes 12:08 the check-out right away', () => {
+  const { rec, rt, get } = leftAt1208();
+  const out = geofenceReplay([{ type: 'finalize', time: at(10, 12, 40), src: 'widget', at: '12:08' }], rt, get, S);
+  const e = out.find(x => x.kind === 'event');
+  assert.equal(e.code, 'gps.leaveConfirmed');
+  assert.equal(e.t, '12:40');
+  assert.equal(e.p.src, 'widget');
+  assert.equal(computeDay('2026-10-10', rec, S).outHM, '12:08');
+  assert.ok(!out.some(x => x.kind === 'signal'));   // a confirmation is not a location signal
+});
+
+test('Android finalizing on its own (src service) is logged as an automatic check-out', () => {
+  const { rec, rt, get } = leftAt1208();
+  const out = geofenceReplay([{ type: 'finalize', time: at(10, 13, 34), src: 'service', at: '12:08' }], rt, get, S);
+  assert.equal(out[0].code, 'gps.leaveFinal');
+  assert.equal(rec.gps.out, '12:08');
+});
+
+test('Back from lunch at 12:55 → no check-out; back after it was finalized → the check-out is cleared', () => {
+  const a = leftAt1208();
+  geofenceReplay([{ type: 'enter', time: at(10, 12, 55), src: 'service' }, { type: 'dwell', time: at(10, 13, 0), src: 'service' }], a.rt, a.get, S);
+  assert.equal(a.rec.gps.status, 'in');
+  assert.equal(a.rec.gps.out ?? null, null);
+  const b = leftAt1208();
+  const out = geofenceReplay([{ type: 'enter', time: at(10, 14, 0), src: 'service' }, { type: 'dwell', time: at(10, 14, 5), src: 'service' }], b.rt, b.get, S);
+  assert.deepEqual([...out.filter(x => x.kind === 'event').map(x => x.code)], ['gps.leaveFinal', 'gps.backUndoOut']);
+  assert.equal(b.rec.gps.out, null);
+  assert.equal(b.rec.gps.status, 'in');
+});
+
+test('A day that ended with a provisional check-out is settled when the app opens the next day', () => {
+  const { rec } = leftAt1208();
+  const evs = settleLeave(rec.gps, '2026-10-10', at(11, 8, 0), S);
+  assert.equal(evs[0].t, '13:30');
+  assert.equal(rec.gps.out, '12:08');
+});
+
+test('A widget confirmation the app could not match still keeps the confirmed time', () => {
+  const days = { '2026-10-10': { manualIn: '07:59' } }, rt = {};
+  geofenceReplay([{ type: 'finalize', time: at(10, 13, 0), src: 'widget', at: '12:08' }], rt, k => days[k], S);
+  assert.equal(days['2026-10-10'].manualOut, '12:08');
 });
 
 /* ===== Bilingual (English / Vietnamese) ===== */

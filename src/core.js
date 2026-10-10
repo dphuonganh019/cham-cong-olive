@@ -70,6 +70,8 @@ const DEFAULT_SETTINGS = () => ({
     tripWindowMin: 60,       // leaving within the first 60 min after check-in = business trip
     dwellMin: 5,             // inside the office zone for 5 min = check-in
     leaveConfirmMin: 3,      // outside the zone for 3 min = left (geofence signals)
+    leaveFinalizeMin: 60,    // left before the cutoff and not back after 60 min = the departure becomes the check-out
+                             // (leaving around lunch: wait until 30 min after lunch ends)
     otBlockMin: 30,          // overtime counts in 30-min steps
     roundMin: 15,            // check-in/out rounded to 15-min blocks
     roundMode: 'down',       // 'down' = round both down (6:07→6:00, 6:47→6:45); 'company' = in up / out down; 'nearest'; 'none'
@@ -203,8 +205,37 @@ function computeMonth(y, m, days, settings, now) {
    manualIn: manual check-in time, if any. GPS never creates a second check-in after a manual one,
              and the "first hour" trip window is measured from the effective check-in (GPS or manual).
    Returns new log events as {t, code, p}; the app translates `code` for display. */
+/* Left before the cutoff and not back: the minute of the day when the provisional check-out becomes final.
+   Leaving from 30 min before lunch until lunch ends waits until 30 min after lunch, so a lunch break isn't a check-out. */
+const LUNCH_GRACE_MIN = 30;
+function leaveFinalMin(leftHM, settings) {
+  const w = settings.work, dep = toMin(leftHM);
+  const ls = toMin(w.lunchStart), le = toMin(w.lunchEnd);
+  let at = dep + Math.max(1, +w.leaveFinalizeMin || 60);
+  if (dep >= ls - LUNCH_GRACE_MIN && dep < le) at = Math.max(at, le + LUNCH_GRACE_MIN);
+  return at;
+}
+
+/* Turns a provisional check-out (left early, not back) into the check-out.
+   how: undefined = only if its time has come (or the day is over); 'service' = Android decided it was time;
+   'widget' | 'notification' | 'app' = you confirmed it. Returns the log events. */
+function settleLeave(g, key, nowMs, settings, how) {
+  if (!g || g.status !== 'out' || !g.lastLeave) return [];
+  const at = g.lastLeave, finalMin = leaveFinalMin(at, settings);
+  const sameDay = dateKey(new Date(nowMs)) === key;
+  let t;
+  if (how) t = sameDay ? fromMin(minOfDay(nowMs)) : fromMin(Math.min(finalMin, 1439));
+  else if (!sameDay && dateKey(new Date(nowMs)) > key) t = fromMin(Math.min(finalMin, 1439));
+  else if (sameDay && minOfDay(nowMs) >= finalMin) t = fromMin(finalMin);
+  else return [];
+  g.out = at; g.status = 'left'; g.lastLeave = null;
+  if (how && how !== 'service') return [{ t, code: 'gps.leaveConfirmed', p: { at, src: how } }];
+  return [{ t, code: 'gps.leaveFinal', p: { at } }];
+}
+
 function gpsStep(rt, g, inside, nowMs, settings, manualIn) {
   const w = settings.work, ev = [];
+  ev.push(...settleLeave(g, dateKey(new Date(nowMs)), nowMs, settings));
   const t = ms => fromMin(minOfDay(ms));
   const dwellMs = w.dwellMin * 60000;
   g.trips = g.trips || [];
@@ -256,7 +287,7 @@ function gpsStep(rt, g, inside, nowMs, settings, manualIn) {
 }
 
 /* Replays location events queued by Android while the app was closed.
-   events: [{type:'enter'|'dwell'|'exit'|'punch', time, dist?, acc?, fresh?, rejected?, info?, wifi?, force?, src?, kind?}]
+   events: [{type:'enter'|'dwell'|'exit'|'punch'|'finalize', time, dist?, acc?, fresh?, rejected?, info?, wifi?, force?, src?, kind?}]
    rtByDay: {key: {insideSince, outsideSince}}; getRec(key) returns the day record (created if missing).
    Returns [{key, kind:'event', t, code, p}] and [{key, kind:'signal', t, type, dist, acc, rejected, src, wifi, info}].
    Signals Android reported wrongly (rejected) or that are for reference only (info) are logged, never counted. */
@@ -280,6 +311,16 @@ function geofenceReplay(events, rtByDay, getRec, settings) {
         rec.manualOut = hm;
         out.push({ key, kind: 'event', t: hm, code: was ? 'punch.outWas' : 'punch.out', p: { src, was } });
       }
+      continue;
+    }
+    if (e.type === 'finalize') {            // the provisional check-out was confirmed (widget, notification) or its time came
+      const how = e.src === 'widget' || e.src === 'notification' ? e.src : 'service';
+      const evs = settleLeave(g, key, e.time, settings, how);
+      if (!evs.length && how !== 'service' && e.at && !rec.manualOut && !g.out) {
+        rec.manualOut = e.at;                // the phone knew a departure the app hadn't replayed: keep what you confirmed
+        evs.push({ t: fromMin(minOfDay(e.time)), code: 'gps.leaveConfirmed', p: { at: e.at, src: how } });
+      }
+      evs.forEach(x => out.push({ key, kind: 'event', ...x }));
       continue;
     }
     out.push({ key, kind: 'signal', t: fromMin(minOfDay(e.time)), type: e.type, dist: e.dist ?? null, acc: e.acc ?? null,

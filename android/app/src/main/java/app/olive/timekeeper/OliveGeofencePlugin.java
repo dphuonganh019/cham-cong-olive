@@ -93,7 +93,8 @@ public class OliveGeofencePlugin extends Plugin {
         JSONArray offArr = d.optJSONArray("offDays");
         if (offArr != null) for (int i = 0; i < offArr.length(); i++) off.add(offArr.optString(i));
         DayState.saveSchedule(getContext(), d.optString("trackStart", "05:30"), d.optString("trackEnd", "20:00"),
-            d.optString("cutoff", "15:00"), off);
+            d.optString("cutoff", "15:00"), off, d.optString("lunchStart", "12:00"), d.optString("lunchEnd", "13:00"),
+            d.optInt("finalizeMin", 60));
         GeofenceStore.prefs(getContext()).edit().putInt("tripWindow", d.optInt("tripWindow", 60)).apply();
         TrackingScheduler.scheduleNext(getContext());
         TrackingScheduler.maybeStart(getContext());
@@ -162,7 +163,7 @@ public class OliveGeofencePlugin extends Plugin {
     @PluginMethod
     public void setToday(PluginCall call) {
         JSObject d = call.getData();
-        DayState.setToday(getContext(), d.optString("date", ""), d.optString("in", ""), d.optString("out", ""));
+        DayState.setToday(getContext(), d.optString("date", ""), d.optString("in", ""), d.optString("out", ""), d.optString("prov", ""));
         TrackingService.send(getContext(), TrackingService.A_REFRESH);
         call.resolve(status());
     }

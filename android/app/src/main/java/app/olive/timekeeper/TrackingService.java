@@ -30,6 +30,8 @@ import com.google.android.gms.location.Priority;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.util.Locale;
+
 
 /**
  * Active location tracking during a workday:
@@ -50,6 +52,7 @@ public class TrackingService extends Service {
     static final String A_OFF = "app.olive.timekeeper.TRACK_OFF";
     static final String A_CHECKOUT = "app.olive.timekeeper.TRACK_CHECKOUT";
     static final String A_END = "app.olive.timekeeper.TRACK_END";
+    static final String A_FINALIZE = "app.olive.timekeeper.TRACK_FINALIZE";
 
     static final String M_WAITING = "waiting";
     static final String M_ARRIVING = "arriving";
@@ -184,6 +187,9 @@ public class TrackingService extends Service {
                 DayState.setDone(this, true);
                 finish();
                 return;
+            case A_FINALIZE:
+                finalizeLeave(now, "notification");
+                return;
             case A_CHECKOUT:
                 DayState.punch(this, "out", now, "notification");
                 DayState.setDone(this, true);
@@ -259,6 +265,15 @@ public class TrackingService extends Service {
         boolean outside = !wifi && loc != null && !GeofenceStore.isInside(this, loc);
         long at = loc != null && loc.getTime() > 0 && loc.getTime() <= now ? loc.getTime() : now;
 
+        // Left early, still away, and the waiting time has passed: the departure becomes the check-out
+        if (M_OUTSIDE.equals(m) && !inside && !sp().getBoolean("trkLeftForTrip", false)) {
+            String prov = DayState.todayProv(this);
+            if (!prov.isEmpty() && nowMin >= DayState.finalizeAtMin(this, DayState.toMin(prov, nowMin))) {
+                finalizeLeave(now, "service");
+                return;
+            }
+        }
+
         SharedPreferences.Editor e = sp().edit();
         e.putFloat("trkDist", wifi ? 0f : dist).putFloat("trkAcc", loc != null && loc.hasAccuracy() ? loc.getAccuracy() : -1f)
             .putLong("trkAt", now).putBoolean("trkWifi", wifi).apply();
@@ -326,6 +341,7 @@ public class TrackingService extends Service {
         GeofenceStore.appendEvent(this, event("dwell", now, loc, wifi, byUser));
         boolean first = !DayState.hasIn(this);
         if (first) DayState.setIn(this, DayState.hm(arr));
+        if (returning) DayState.setProv(this, "");
         sp().edit().putString("trkMode", M_INSIDE).putLong("trkLeaveFirst", 0)
             .putBoolean("trkReturning", false).putString("trkLeftAt", "").apply();
         RecheckReceiver.cancel(this);
@@ -356,6 +372,18 @@ public class TrackingService extends Service {
         sp().edit().putString("trkMode", M_OUTSIDE).putLong("trkLeaveFirst", 0)
             .putBoolean("trkTrip", sp().getBoolean("trkTrip", false) || trip)
             .putString("trkLeftAt", t).putBoolean("trkLeftForTrip", trip).apply();
+        if (!trip && DayState.hasIn(this)) DayState.setProv(this, t);
+    }
+
+    /** The provisional check-out becomes the check-out: confirmed on the notification, or not back in time. */
+    private void finalizeLeave(long now, String src) {
+        String at = DayState.finalizeLeave(this, now, src);
+        if (at != null) {
+            boolean auto = "service".equals(src);
+            GeofenceStore.notify(this, 3, I18n.t(this, auto ? "checkedOutGps" : "checkedOut", at),
+                auto ? I18n.t(this, "finalize.auto", at) : I18n.t(this, "tapEdit"));
+        }
+        finish();
     }
 
     /* ---------- Notifications ---------- */
@@ -421,8 +449,16 @@ public class TrackingService extends Service {
         } else if (M_OUTSIDE.equals(m)) {
             String leftAt = sp().getString("trkLeftAt", "");
             boolean trip = sp().getBoolean("trkLeftForTrip", false);
+            String prov = DayState.todayProv(this);
             title = I18n.t(this, trip ? "trk.tripFrom" : "trk.leftAt", leftAt);
-            text = I18n.t(this, trip ? "trk.tripText" : "trk.leftText") + " · " + where;
+            if (trip || prov.isEmpty()) {
+                text = I18n.t(this, "trk.tripText") + " · " + where;
+            } else {
+                int fin = DayState.finalizeAtMin(this, DayState.toMin(prov, 0));
+                String finHm = String.format(Locale.US, "%02d:%02d", (fin / 60) % 24, fin % 60);
+                text = I18n.t(this, "trk.leftUntil", finHm, prov) + " · " + where;
+                b.addAction(0, I18n.t(this, "act.confirmOut", prov), actionIntent(A_FINALIZE, 7037));
+            }
             b.addAction(0, I18n.t(this, "act.checkoutNow"), actionIntent(A_CHECKOUT, 7033));
             b.addAction(0, I18n.t(this, "act.endToday"), actionIntent(A_END, 7034));
         } else if (!in.isEmpty()) {

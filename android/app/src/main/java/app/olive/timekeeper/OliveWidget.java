@@ -25,6 +25,16 @@ public class OliveWidget extends AppWidgetProvider {
     public void onReceive(Context context, Intent intent) {
         if (ACTION_PUNCH.equals(intent.getAction())) {
             long now = System.currentTimeMillis();
+            // Left early and not back yet: the button confirms that departure time as the check-out
+            if (DayState.hasIn(context) && !DayState.hasOut(context) && !DayState.todayProv(context).isEmpty()) {
+                String at = DayState.finalizeLeave(context, now, "widget");
+                if (at != null) {
+                    Toast.makeText(context, I18n.t(context, "checkedOut", at), Toast.LENGTH_SHORT).show();
+                    TrackingService.send(context, TrackingService.A_REFRESH);
+                    DayState.refreshWidgets(context);
+                    return;
+                }
+            }
             String kind = DayState.punch(context, null, now, "widget");
             if (kind == null) {
                 Toast.makeText(context, I18n.t(context, "widget.tooSoon"), Toast.LENGTH_SHORT).show();
@@ -49,13 +59,15 @@ public class OliveWidget extends AppWidgetProvider {
             ? String.format(Locale.US, "%02d/%02d", cal.get(Calendar.DAY_OF_MONTH), cal.get(Calendar.MONTH) + 1)
             : new SimpleDateFormat("d MMM", Locale.ENGLISH).format(cal.getTime());
         String date = I18n.t(c, "dow." + cal.get(Calendar.DAY_OF_WEEK)) + ", " + day;
-        String in = DayState.todayIn(c), out = DayState.todayOut(c);
+        String in = DayState.todayIn(c), out = DayState.todayOut(c), prov = DayState.todayProv(c);
         v.setTextViewText(R.id.w_date, date);
         v.setTextViewText(R.id.w_in_label, I18n.t(c, "widget.in"));
         v.setTextViewText(R.id.w_out_label, I18n.t(c, "widget.out"));
         v.setTextViewText(R.id.w_in, in.isEmpty() ? "--:--" : in);
-        v.setTextViewText(R.id.w_out, out.isEmpty() ? "--:--" : out);
-        String label = I18n.t(c, in.isEmpty() ? "widget.btnIn" : out.isEmpty() ? "widget.btnOut" : "widget.btnUpdate");
+        boolean provisional = !in.isEmpty() && out.isEmpty() && !prov.isEmpty();
+        v.setTextViewText(R.id.w_out, !out.isEmpty() ? out : provisional ? prov + "*" : "--:--");
+        String label = provisional ? I18n.t(c, "widget.btnConfirmOut", prov)
+            : I18n.t(c, in.isEmpty() ? "widget.btnIn" : out.isEmpty() ? "widget.btnOut" : "widget.btnUpdate");
         v.setTextViewText(R.id.w_button, label);
 
         Intent punch = new Intent(c, OliveWidget.class).setAction(ACTION_PUNCH);

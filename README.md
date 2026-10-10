@@ -21,6 +21,7 @@ My workday rarely fits a fixed 8:00–17:00 schedule. Some days I arrive at 6:00
 - **Arrival time, not detection time.** After you have been at the office for 5 minutes you are checked in, and the check-in time is the moment you *arrived*.
 - **Business trips are recognised automatically.** Leaving within the first hour after check-in starts a trip; coming back ends it; passing by the office on the way doesn't.
 - **Check-out when you leave**, confirmed by two consecutive readings so GPS drift inside a building can't end your day early. Leaving for lunch and coming back is not a check-out.
+- **Half days handled.** Leave before 15:00 and don't come back, and your departure time becomes the check-out after an hour (or 30 minutes after lunch). You can also confirm it straight away from the app, the notification or the widget.
 - **Adaptive tracking.** A foreground service starts at 05:30 on workdays and measures your location every 10 minutes when you're far away, every 30 seconds when you're close, and every 2 minutes once you're inside, saving battery.
 - **Office Wi-Fi as a second signal.** The app remembers your office's access points (no connection needed), which works even where GPS is weak.
 - **No false check-ins.** Android geofences, which can be off by kilometres when only cell towers are available, are kept as a backup, and every signal is re-measured with high-accuracy GPS before it counts. A signal log on the Today screen shows each reading and why it was accepted or ignored.
@@ -68,7 +69,7 @@ flowchart LR
 
 ## Quality
 
-- **25 automated tests** run on every build, covering rounding, half days, Saturday rules, overtime rates, salary changes, business trips, false geofence signals, lunch breaks, widget punches and active-tracking scenarios taken from real days, plus checks that every English text has a Vietnamese counterpart with the same placeholders.
+- **32 automated tests** run on every build, covering rounding, half days, Saturday rules, overtime rates, salary changes, business trips, false geofence signals, lunch breaks, widget punches and active-tracking scenarios taken from real days, plus checks that every English text has a Vietnamese counterpart with the same placeholders.
 - The build fails if any test fails, so a broken rule can't ship.
 - The UI was exercised in a headless browser against a simulated Android bridge, in both languages.
 
@@ -99,7 +100,7 @@ The GitHub Actions workflow (`.github/workflows/build-apk.yml`) does all of this
 
 ## Documentation
 
-The full requirements specification, with 27 user stories, acceptance criteria, business rules BR-01 to BR-16 and non-functional requirements, is in [docs/SPECIFICATION.md](docs/SPECIFICATION.md).
+The full requirements specification, with 27 user stories, acceptance criteria, business rules BR-01 to BR-17 and non-functional requirements, is in [docs/SPECIFICATION.md](docs/SPECIFICATION.md).
 
 ## Project layout
 

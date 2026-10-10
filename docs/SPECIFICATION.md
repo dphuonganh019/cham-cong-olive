@@ -53,7 +53,7 @@ Olive Timekeeper is an Android app that lets an employee record their own check-
 | Monthly standard workdays | The number of Monday–Saturday days in the month (default), used to derive the daily rate |
 | Business trip | Leaving the office within the first 60 minutes after check-in to work elsewhere |
 | Cutoff | 15:00; leaving the office after this time counts as check-out |
-| Provisional check-out | Leaving the office before the cutoff without coming back; used as the check-out time if the user does not return that day |
+| Provisional check-out | Leaving the office before the cutoff, not on a business trip; it becomes the check-out if the user is not back within the waiting time (BR-17) or confirms it |
 | Active tracking | A background service that measures location periodically and shows a persistent status-bar notification |
 | Geofence | A zone signal raised by Android; battery-friendly but 2–6 minutes late and sometimes far off |
 | Quick punch | Check-in/out from the widget or a notification button without opening the app |
@@ -116,6 +116,7 @@ All calculations use check-in/out times rounded down to 15-minute blocks. Workda
 | BR-14 | A past day without a check-out, or with a check-out not after the check-in, earns no workday and is flagged ⚠ | In 08:10, no out → 0 workdays |
 | BR-15 | Today without a check-out is counted up to the current time | — |
 | BR-16 | Leaving the office before the cutoff, not on a business trip, and not returning: the departure time becomes a provisional check-out | Morning shift 07:58–12:02 → 0.5 workday |
+| BR-17 | A provisional check-out becomes the check-out after 60 minutes away (configurable). Leaving from 30 minutes before lunch until lunch ends waits until 30 minutes after lunch instead. A day that ended with a provisional check-out is settled the next time the app opens | Left 10:00 → final at 11:00 · left 12:08 → final at 13:30 |
 
 Example for BR-13: probation pay of 10,800,000 VND, October 2026, 6 October in at 08:00 and out at 17:43 → 1 workday (400,000 VND) + 0.5 h OT × 50,000 × 1.5 (37,500 VND) = 437,500 VND.
 
@@ -215,8 +216,10 @@ As an employee, I want the app to record exactly when I leave so that my check-o
 
 - AC-07.1: While inside, a reading "outside" → recorded as the first reading outside, and readings speed up to every 30 seconds. A second reading "outside" at least 45 seconds after the first → departure confirmed, **departure time = the first reading outside**. A reading back inside → cancelled.
 - AC-07.2: Leaving at 15:00 or later → check out with check-out = departure time; notification "Checked out at HH:MM (GPS)"; tracking stops for the day.
-- AC-07.3: Leaving before 15:00 and not on a trip → the log shows "Left the office at HH:MM → becomes check-out if you don't return". The Timesheet shows that time with "(provisional)" and the Today tab shows "Left the office".
-- AC-07.4: Returning after leaving before 15:00 (for example after lunch) → the provisional check-out is dropped and time keeps counting.
+- AC-07.3: Leaving before 15:00 and not on a trip → the log shows "Left the office at HH:MM → becomes check-out if you don't return". The Timesheet shows that time with "(provisional)"; the Today tab shows "Left the office · becomes your check-out if you're not back by HH:MM" and a "Confirm check-out at HH:MM" button; the widget shows the time with an asterisk ("12:08*").
+- AC-07.4: Returning within the waiting time (for example after lunch) → the provisional check-out is dropped and time keeps counting.
+- AC-07.7: Not back when the waiting time ends (BR-17) → the departure becomes the check-out; the log shows "Not back after leaving at HH:MM → checked out at HH:MM (GPS)"; the notification "Checked out at HH:MM (GPS)" appears and tracking stops for the day. Coming back later still clears it (AC-07.5).
+- AC-07.8: "Confirm check-out at HH:MM" (app), "Confirm out HH:MM" (notification) or "CONFIRM OUT HH:MM" (widget) → the departure time becomes the check-out immediately, not the time of the tap.
 - AC-07.5: Returning after a GPS check-out → that check-out is dropped and the log shows "Back at the office → check-out hh:mm cleared".
 - AC-07.6: "Check out now" → the tap time is recorded as a manual time and tracking stops.
 
@@ -276,13 +279,13 @@ The user can check in and out without opening the app, from the widget or notifi
 As an employee, I want to check in or out right from my home screen so that the exact time is recorded without opening the app.
 
 - AC-12.1: A 3×2 widget (resizable) shows the weekday and date, IN and OUT ("--:--" when empty) and one large button.
-- AC-12.2: Button label: no check-in → CHECK IN; checked in, not out → CHECK OUT; both → UPDATE CHECK-OUT.
+- AC-12.2: Button label: no check-in → CHECK IN; checked in, not out → CHECK OUT; left early with a provisional check-out → CONFIRM OUT HH:MM (AC-07.8); both → UPDATE CHECK-OUT.
 - AC-12.3: Tapping it → records the tap time as a manual time; shows "Checked in at HH:MM" or "Checked out at HH:MM"; the widget updates immediately.
 - AC-12.4: Another tap within 60 seconds → ignored with "You just tapped. Wait a minute to tap again."
 - AC-12.5: Checking out from the widget → today is marked as ended and active tracking stops.
 - AC-12.6: Tapping the information area (date, times) → opens the app.
 - AC-12.7: A new day → the widget clears (within 30 minutes, or at 05:30).
-- AC-12.8: Times changed in the app (tap, edit, GPS) → the widget shows the new effective times; provisional check-outs are not shown.
+- AC-12.8: Times changed in the app (tap, edit, GPS) → the widget shows the new effective times; a provisional check-out is shown with an asterisk.
 - AC-12.9: The next time the app opens, all widget taps are merged into the timesheet in time order. A check-in tap when a manual check-in already exists → ignored and noted in the log.
 - AC-12.10: The widget text follows the language chosen in the app.
 
@@ -302,7 +305,7 @@ As an employee, I want to see which step tracking is at and act on it from the n
 | Checked in manually, not yet seen at the office | Checked in at 06:58 | Check-out is recorded when you leave the office · … from the office | Check out now · End today |
 | At the office | At the office · in at 06:55 | Check-out is recorded when you leave | Check out now |
 | Left on a business trip | On a business trip since 07:03 | The app will record when you return to the office · … from the office | Check out now · End today |
-| Left before 15:00 | Left the office at 12:02 | If you don't come back, this is your check-out · … from the office | Check out now · End today |
+| Left before 15:00 | Left the office at 12:08 | If you're not back by 13:30, 12:08 becomes your check-out · … from the office | Confirm out 12:08 · Check out now · End today |
 
 - AC-13.4: Notification text and channel names follow the language chosen in the app.
 
@@ -319,6 +322,7 @@ As an employee, I want to be told once when the app records a time automatically
 | The app checks in automatically (first time that day) | Checked in at HH:MM (GPS) |
 | Back at the office after leaving | Back at the office at HH:MM |
 | The app checks out automatically, or "Check out now" is tapped | Checked out at HH:MM |
+| Not back after leaving early (BR-17) | Checked out at HH:MM (GPS) |
 | 15:00 on a workday, not arrived, "Day off today" not tapped | You haven't arrived at the office today |
 | Android blocks tracking from starting | Tap to turn on automatic check-in today |
 | Backup geofence records an arrival (service not running) | Arrived at the office |
@@ -328,7 +332,7 @@ As an employee, I want to be told once when the app records a time automatically
 
 ## 7. Epic 4 – Monthly timesheet and pay estimate
 
-The Timesheet tab shows every day of the month with totals. The Pay tab estimates pay according to BR-01 to BR-16 and manages pay rates.
+The Timesheet tab shows every day of the month with totals. The Pay tab estimates pay according to BR-01 to BR-17 and manages pay rates.
 
 ### US-15 – View the monthly timesheet
 
@@ -424,6 +428,7 @@ As an employee, I want to adjust the thresholds if my company changes its policy
 | Leaving within (first minutes) = business trip | 60 minutes | ≥ 5 | AC-06.1 |
 | At the office for (minutes) = check-in | 5 minutes | ≥ 1 | AC-05.2 |
 | Outside the radius for (minutes) = left | 3 minutes | ≥ 1 | AC-10.6 |
+| Left early and not back after (minutes) = check-out | 60 minutes | ≥ 5 | BR-17 |
 | Round check-in/out to blocks of | 15 minutes | ≥ 1 | BR-01 |
 | Rounding | Round both down | Both down · In up / out down · Nearest · None | BR-01 |
 | Minimum overtime / step | 30 minutes | ≥ 1 | BR-06–BR-08 |
@@ -492,13 +497,13 @@ Automatically recorded times must be within about 1–2 minutes of reality; the 
 | NFR-09 | Reliability | No data loss when updating | New versions are signed with the same key and install over the old one |
 | NFR-10 | Usability | Full English and Vietnamese interface; light and dark themes follow the system | No horizontal scrolling at 400 px width; main buttons ≥ 44 px tall |
 | NFR-11 | Usability | Hours and amounts are easy to compare in columns | Tabular numerals; amounts formatted for the chosen language |
-| NFR-12 | Testing | The timekeeping logic and translations have automated tests | 25 tests run on every build (including translation completeness); a failing test stops the APK |
+| NFR-12 | Testing | The timekeeping logic and translations have automated tests | 32 tests run on every build (including translation completeness); a failing test stops the APK |
 
 ## 11. Distribution and updates
 
 Every push to the `main` branch of `dphuonganh019/olive-timekeeper` makes GitHub Actions test the code and publish a new APK.
 
-1. Run the 25 logic and translation tests; stop if any fails.
+1. Run the 32 logic and translation tests; stop if any fails.
 2. Build the web interface and bundle the export libraries into the app.
 3. Sync the interface into the Android project and build the release variant.
 4. Sign the APK with a fixed key kept in two secrets, `OLIVE_KEYSTORE_BASE64` and `OLIVE_KEYSTORE_PASSWORD`; without them only a test build runs and nothing is published.

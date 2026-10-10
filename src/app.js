@@ -149,7 +149,7 @@ function renderToday() {
   $('#slotIn').classList.toggle('set', !!r.inHM);
   $('#slotOut').classList.toggle('set', !!r.outHM);
   $('#inSrc').textContent = r.inSrc === 'manual' ? T('today.src.manual') + (g.in && g.in !== r.inHM ? ' · GPS ' + g.in : '') : r.inSrc === 'gps' ? T('today.src.gps') : T('today.none');
-  $('#outSrc').textContent = r.provisionalOut ? T('today.leftProvisional') : r.outSrc === 'manual' ? T('today.src.manual') + (g.out && g.out !== r.outHM ? ' · GPS ' + g.out : '') : r.outSrc === 'gps' ? T('today.src.gps') : T('today.none');
+  $('#outSrc').textContent = r.provisionalOut ? T('today.leftProvisional', { t: fromMin(leaveFinalMin(r.outHM, settings)) }) : r.outSrc === 'manual' ? T('today.src.manual') + (g.out && g.out !== r.outHM ? ' · GPS ' + g.out : '') : r.outSrc === 'gps' ? T('today.src.gps') : T('today.none');
   $('#workedToday').textContent = fmtH(r.workedMin);
   const otTxt = r.ot150 ? `<span class="pill r150">OT 150%: ${fmtH(r.ot150)}</span>` : r.ot200 ? `<span class="pill r200">200%: ${fmtH(r.ot200)}</span>` : r.ot300 ? `<span class="pill r300">300%: ${fmtH(r.ot300)}</span>` : (r.dt.type !== 'weekday' ? `<span class="pill">${esc(dayLabel(r.dt))}</span>` : '');
   $('#otToday').innerHTML = otTxt;
@@ -164,11 +164,14 @@ function renderToday() {
 
   const act = $('#punchActions'), t = nowHM();
   if (!r.inHM) act.innerHTML = `<button class="btn primary" id="btnIn">${esc(T('today.btnIn', { t }))}</button>`;
+  else if (r.provisionalOut) act.innerHTML = `<button class="btn primary" id="btnConfirmOut">${esc(T('today.btnConfirmOut', { t: r.outHM }))}</button><button class="btn" id="btnOut">${esc(T('today.btnOut', { t }))}</button>`;
   else if (!r.outHM) act.innerHTML = `<button class="btn primary" id="btnOut">${esc(T('today.btnOut', { t }))}</button>`;
   else act.innerHTML = `<button class="btn" id="btnOut">${esc(T('today.btnUpdate', { t }))}</button>`;
   const bi = $('#btnIn'), bo = $('#btnOut');
   if (bi) bi.onclick = () => punch('in');
   if (bo) bo.onclick = () => punch('out');
+  const bc = $('#btnConfirmOut');
+  if (bc) bc.onclick = confirmLeave;
 
   const tl = $('#timeline'), evs = (rec.events || []).slice().sort((a, b) => a.t < b.t ? -1 : 1);
   tl.innerHTML = evs.length ? evs.map(e => `<li><time>${esc(e.t)}</time><span>${esc(eventText(e))}</span></li>`).join('')
@@ -189,10 +192,39 @@ function punch(kind) {
   }
   touch(key); renderToday();
 }
+/* "Confirm check-out at 12:08": the provisional check-out becomes the check-out now. */
+function confirmLeave() {
+  if (!ready) { toast(T('toast.loading')); return; }
+  const key = todayKey(), rec = recFor(key, true), at = rec.gps && rec.gps.lastLeave;
+  const evs = settleLeave(rec.gps, key, Date.now(), settings, 'app');
+  if (!evs.length) return;
+  evs.forEach(e => logEvent(rec, e.t, e.code, e.p));
+  touch(key); renderToday(); toast(T('toast.confirmedOut', { t: at }));
+}
+/* Provisional check-outs whose waiting time has passed (or whose day is over) become check-outs. */
+function settleDays() {
+  if (!ready) return false;
+  const now = Date.now(); let changed = false;
+  for (const mo of Object.values(months)) {
+    for (const [key, rec] of Object.entries(mo.days || {})) {
+      const evs = settleLeave(rec.gps, key, now, settings);
+      if (!evs.length) continue;
+      evs.forEach(e => logEvent(rec, e.t, e.code, e.p));
+      touch(key); changed = true;
+      if (key === todayKey()) evs.forEach(e => toast(eventText(e)));
+    }
+  }
+  return changed;
+}
 $('#editTodayBtn').addEventListener('click', () => openEdit(todayKey()));
 const tickClock = () => { const d = new Date(); $('#clock').textContent = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); };
 tickClock(); setInterval(tickClock, 1000);
-setInterval(() => { if (ready && !$('#view-today').hidden) renderToday(); }, 20000);
+setInterval(() => {
+  if (!ready) return;
+  const changed = settleDays();
+  if (!$('#view-today').hidden) renderToday();
+  if (changed && (!$('#view-month').hidden || !$('#view-pay').hidden)) renderMonthViews();
+}, 20000);
 
 /* ---------- GPS (web: only while the page is open) ---------- */
 const gpsRt = { day: null, insideSince: null, outsideSince: null, lastInside: null, lastDist: null, acc: null };
@@ -257,7 +289,13 @@ function storeGeoRt() {
   geoRt = keep;
   try { localStorage.setItem('olive:geort', JSON.stringify(geoRt)); } catch (e) {}
 }
-async function syncGeofenceEvents() {
+let syncRunning = null;
+function syncGeofenceEvents() {
+  // One sync at a time: two overlapping reads of the queue logged every signal twice
+  if (!syncRunning) syncRunning = doSyncGeofenceEvents().finally(() => { syncRunning = null; });
+  return syncRunning;
+}
+async function doSyncGeofenceEvents() {
   if (!NATIVE || !ready) return;
   let res;
   try { res = await Native.geo.getEvents(); } catch (e) { return; }
@@ -275,6 +313,7 @@ async function syncGeofenceEvents() {
   });
   keys.forEach(touch);
   storeGeoRt();
+  settleDays();
   try { await Native.geo.clearEvents({ upTo: Math.max(...events.map(e => e.time)) }); } catch (e) {}
   renderToday();
   if (!$('#view-month').hidden || !$('#view-pay').hidden) renderMonthViews();
@@ -329,10 +368,11 @@ function syncTodayToNative() {
   if (!NATIVE || !ready || !Native.geo) return;
   const key = todayKey(), r = computeDay(key, recFor(key) || {}, settings);
   const out = r.outHM && !r.provisionalOut ? r.outHM : '';
-  const sig = key + '|' + (r.inHM || '') + '|' + out;
+  const prov = r.provisionalOut ? r.outHM : '';
+  const sig = key + '|' + (r.inHM || '') + '|' + out + '|' + prov;
   if (sig === lastTodaySig) return;
   lastTodaySig = sig;
-  Native.geo.setToday({ date: key, in: r.inHM || '', out }).catch(() => { lastTodaySig = ''; });
+  Native.geo.setToday({ date: key, in: r.inHM || '', out, prov }).catch(() => { lastTodaySig = ''; });
 }
 async function startNativeGeofence() {
   const o = settings.office, w = settings.work;
@@ -345,6 +385,7 @@ async function startNativeGeofence() {
       st = await Native.geo.configure({
         lat: +o.lat, lng: +o.lng, radius: +o.radius, dwellMin: +w.dwellMin, name: o.name || T('office.default'),
         trackStart: w.trackStart, trackEnd: w.trackEnd, cutoff: w.afternoonCutoff, tripWindow: +w.tripWindowMin,
+        lunchStart: w.lunchStart, lunchEnd: w.lunchEnd, finalizeMin: +w.leaveFinalizeMin,
         offDays: settings.holidays.map(h => h.date), lang: LANG,
       });
     } else { st = await Native.geo.getStatus(); }
@@ -380,7 +421,7 @@ function curMonthCalc() {
 $$('[data-mnav]').forEach(b => b.addEventListener('click', async () => {
   let m = view.m + +b.dataset.mnav, y = view.y;
   if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
-  view = { y, m }; await ensureMonth(y, m); renderMonthViews();
+  view = { y, m }; await ensureMonth(y, m); settleDays(); renderMonthViews();
 }));
 function renderMonthViews() {
   $$('.month-title').forEach(h => h.textContent = T('month.title', { month: monthName(view.m), year: view.y }));
@@ -564,7 +605,7 @@ function renderSettings() {
   $('#mapLink').href = o.lat != null ? `https://www.google.com/maps?q=${o.lat},${o.lng}` : 'https://maps.google.com';
   $('#wLunchStart').value = w.lunchStart; $('#wLunchEnd').value = w.lunchEnd; $('#wSat').value = w.satStdHours;
   $('#wCutoff').value = w.afternoonCutoff; $('#wTrip').value = w.tripWindowMin; $('#wDwell').value = w.dwellMin;
-  $('#wLeave').value = w.leaveConfirmMin; $('#wBlock').value = w.otBlockMin;
+  $('#wLeave').value = w.leaveConfirmMin; $('#wBlock').value = w.otBlockMin; $('#wFinalize').value = w.leaveFinalizeMin;
   $('#wRoundMin').value = w.roundMin; $('#wRoundMode').value = w.roundMode;
   const sel = $('#wStd'); if (![...sel.options].some(op => op.value === String(w.stdDaysMode))) sel.add(new Option(T('set.std.n', { n: w.stdDaysMode }), w.stdDaysMode)); sel.value = String(w.stdDaysMode);
   renderHolidays();
@@ -591,14 +632,15 @@ function readSettingsForm() {
   w.afternoonCutoff = $('#wCutoff').value || '15:00';
   w.tripWindowMin = Math.max(5, num($('#wTrip').value, 60)); w.dwellMin = Math.max(1, num($('#wDwell').value, 5));
   w.leaveConfirmMin = Math.max(1, num($('#wLeave').value, 3)); w.otBlockMin = Math.max(1, num($('#wBlock').value, 30));
+  w.leaveFinalizeMin = Math.max(5, num($('#wFinalize').value, 60));
   w.roundMin = Math.max(1, num($('#wRoundMin').value, 15)); w.roundMode = $('#wRoundMode').value || 'down';
   w.stdDaysMode = $('#wStd').value;
   w.trackStart = $('#wTrackStart').value || '05:30'; w.trackEnd = $('#wTrackEnd').value || '20:00';
   saveSettings();
   $('#mapLink').href = o.lat != null ? `https://www.google.com/maps?q=${o.lat},${o.lng}` : 'https://maps.google.com';
 }
-['#setName', '#offName', '#offLat', '#offLng', '#offRadius', '#wLunchStart', '#wLunchEnd', '#wSat', '#wCutoff', '#wTrip', '#wDwell', '#wLeave', '#wBlock', '#wRoundMin', '#wRoundMode', '#wStd', '#wTrackStart', '#wTrackEnd']
-  .forEach(s => $(s).addEventListener('change', () => { readSettingsForm(); if (['#offName', '#offLat', '#offLng', '#offRadius', '#wTrackStart', '#wTrackEnd', '#wCutoff', '#wDwell', '#wTrip'].includes(s)) startGps(); toast(T('set.saved')); }));
+['#setName', '#offName', '#offLat', '#offLng', '#offRadius', '#wLunchStart', '#wLunchEnd', '#wSat', '#wCutoff', '#wTrip', '#wDwell', '#wLeave', '#wFinalize', '#wBlock', '#wRoundMin', '#wRoundMode', '#wStd', '#wTrackStart', '#wTrackEnd']
+  .forEach(s => $(s).addEventListener('change', () => { readSettingsForm(); if (['#offName', '#offLat', '#offLng', '#offRadius', '#wTrackStart', '#wTrackEnd', '#wCutoff', '#wDwell', '#wTrip', '#wFinalize', '#wLunchStart', '#wLunchEnd'].includes(s)) startGps(); toast(T('set.saved')); }));
 function renderWifiList(nets, canScan) {
   $('#wifiList').innerHTML = nets.length
     ? esc(T('set.wifiSaved', { names: '\u0000' })).replace('\u0000', nets.map(n => '<b>' + esc(n.ssid) + '</b>').join(', '))
@@ -823,6 +865,7 @@ async function boot() {
   const n = new Date();
   await ensureMonth(n.getFullYear(), n.getMonth() + 1);
   ready = true;
+  settleDays();
   setStoreChip(); renderAll(); loadRt(); loadGeoRt(); startGps();
   if (window.claude && typeof window.claude.use === 'function') window.claude.use('downloads');
 }

@@ -51,6 +51,7 @@ final class I18n {
         put("widget.out", "OUT", "RA");
         put("widget.btnIn", "CHECK IN", "CHECK IN");
         put("widget.btnOut", "CHECK OUT", "CHECK OUT");
+        put("widget.btnConfirmOut", "CONFIRM OUT %s", "CHỐT RA %s");
         put("widget.btnUpdate", "UPDATE CHECK-OUT", "CẬP NHẬT GIỜ RA");
         put("widget.tooSoon", "You just tapped. Wait a minute to tap again.", "Bạn vừa bấm rồi. Đợi 1 phút nếu muốn bấm lại.");
         put("checkedIn", "Checked in at %s", "Đã check in lúc %s");
@@ -80,11 +81,13 @@ final class I18n {
         put("trk.tripFrom", "On a business trip since %s", "Đi công tác từ %s");
         put("trk.leftAt", "Left the office at %s", "Đã rời công ty lúc %s");
         put("trk.tripText", "The app will record when you return to the office", "App sẽ ghi lúc bạn quay lại công ty");
-        put("trk.leftText", "If you don't come back, this is your check-out", "Nếu không quay lại, đây sẽ là giờ ra");
+        put("trk.leftUntil", "If you're not back by %1$s, %2$s becomes your check-out", "Nếu không quay lại trước %1$s, giờ ra sẽ là %2$s");
+        put("finalize.auto", "You didn't come back after leaving at %s. Tap to view or edit.", "Bạn không quay lại sau khi rời lúc %s. Bấm để xem hoặc sửa giờ.");
         put("trk.checkedInText", "Check-out is recorded when you leave the office · %s", "Sẽ ghi giờ ra khi bạn rời công ty · %s");
         put("trk.waiting", "Waiting for you to arrive at the office", "Đang chờ bạn tới công ty");
         put("act.confirm", "Confirm %s", "Xác nhận %s");
         put("act.notMe", "Not there yet", "Không phải");
+        put("act.confirmOut", "Confirm out %s", "Chốt giờ ra %s");
         put("act.checkoutNow", "Check out now", "Check out ngay");
         put("act.endToday", "End today", "Kết thúc hôm nay");
         put("act.checkinNow", "Check in now", "Check in ngay");
