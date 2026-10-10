@@ -1,0 +1,206 @@
+<header class="top">
+  <div class="top-in">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+      <h1 data-i18n="app.title">Olive Timekeeper</h1>
+    </div>
+    <span class="store-chip" id="storeChip"><span class="dot"></span><span id="storeText" data-i18n="app.loading">Loading data…</span></span>
+    <button class="lang-btn" id="langBtn" type="button" data-i18n="lang.toggleShort" data-i18n-aria="lang.aria">VI</button>
+  </div>
+</header>
+
+<nav class="tabs" data-i18n-aria="nav.aria" aria-label="Switch screen">
+  <div class="tabs-in" role="tablist">
+    <button class="tab" role="tab" id="tb-today" data-tab="today" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span data-i18n="tab.today">Today</span></button>
+    <button class="tab" role="tab" id="tb-month" data-tab="month" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span data-i18n="tab.month">Timesheet</span></button>
+    <button class="tab" role="tab" id="tb-pay" data-tab="pay" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><circle cx="12" cy="12.5" r="2.5"/><path d="M6 9.5h.01M18 15.5h.01"/></svg><span data-i18n="tab.pay">Pay</span></button>
+    <button class="tab" role="tab" id="tb-settings" data-tab="settings" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><span data-i18n="tab.settings">Settings</span></button>
+  </div>
+</nav>
+
+<main class="wrap">
+  <!-- TODAY -->
+  <section class="view" id="view-today">
+    <div class="today-hero">
+      <div class="card clock-card">
+        <div class="spread">
+          <span class="date-line" id="todayDate"></span>
+          <span class="pill" id="todayStatus" data-i18n="today.status.none">Not checked in</span>
+        </div>
+        <div class="clock" id="clock">--:--</div>
+        <div class="punch">
+          <div class="slot" id="slotIn"><span class="src" data-i18n="today.in">Check-in</span><b id="inVal">--:--</b><span class="small muted" id="inSrc" data-i18n="today.none">Not yet</span></div>
+          <div class="slot" id="slotOut"><span class="src" data-i18n="today.out">Check-out</span><b id="outVal">--:--</b><span class="small muted" id="outSrc" data-i18n="today.none">Not yet</span></div>
+        </div>
+        <div class="spread small">
+          <span><span data-i18n="today.worked">Worked:</span> <b class="mono" id="workedToday">0h</b> <span class="muted" data-i18n="today.lunchNote">(lunch break excluded)</span></span>
+          <span id="otToday"></span>
+        </div>
+        <div class="big-actions" id="punchActions"></div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+        <div class="card gps-card">
+          <div class="spread"><h3 data-i18n="today.gpsTitle">Location</h3><span class="pill" id="gpsPill" data-i18n="today.gpsChecking">Checking</span></div>
+          <div class="gps-line" style="margin-top:10px"><span class="gps-dot" id="gpsDot"></span><p style="margin:0" id="gpsText" class="small" data-i18n="today.gpsIntro">While this page is open, the app reads your location to check you in, spot business trips and check you out.</p></div>
+          <label class="check small" style="margin-top:12px"><input type="checkbox" id="wakeLock"> <span data-i18n="today.wake">Keep the screen on so GPS keeps running</span></label>
+        </div>
+        <div class="card">
+          <div class="spread"><h3 data-i18n="today.log">Today’s log</h3><button class="btn sm ghost" id="editTodayBtn" data-i18n="today.edit">Edit times</button></div>
+          <ul class="timeline" id="timeline" style="margin-top:8px"></ul>
+          <div class="signals" id="signals" hidden>
+            <span class="src" data-i18n="today.signals">Location signals received</span>
+            <ul id="signalList"></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TIMESHEET -->
+  <section class="view" id="view-month" hidden>
+    <div class="spread">
+      <div class="month-nav">
+        <button class="icon-btn" data-mnav="-1" data-i18n-aria="month.prev" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <h2 class="month-title"></h2>
+        <button class="icon-btn" data-mnav="1" data-i18n-aria="month.next" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></button>
+      </div>
+      <button class="btn sm" id="addDayBtn" data-i18n="month.add">+ Add / edit day</button>
+    </div>
+    <div class="stats" id="monthStats"></div>
+    <div id="monthWarn"></div>
+    <div class="table-wrap"><table class="grid" id="monthTable"></table></div>
+    <div class="legend">
+      <span><span class="srcdot manual"></span> <span data-i18n="legend.manual">Entered by you</span></span>
+      <span><span class="srcdot gps"></span> <span data-i18n="legend.gps">Recorded by GPS</span></span>
+      <span data-i18n="legend.tap">Tap a row to edit its times</span>
+    </div>
+  </section>
+
+  <!-- PAY -->
+  <section class="view" id="view-pay" hidden>
+    <div class="spread">
+      <div class="month-nav">
+        <button class="icon-btn" data-mnav="-1" data-i18n-aria="month.prev" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <h2 class="month-title"></h2>
+        <button class="icon-btn" data-mnav="1" data-i18n-aria="month.next" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></button>
+      </div>
+      <div class="row">
+        <button class="btn sm" id="xlsxBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Excel</button>
+        <button class="btn sm" id="pdfBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>PDF</button>
+      </div>
+    </div>
+    <div class="card pay-total" id="payTotal"></div>
+    <div class="card" id="payLines"></div>
+    <div class="card">
+      <div class="spread"><h3 data-i18n="pay.rates">Your pay rates</h3><span class="small muted" data-i18n="pay.ratesHint">Probation and permanent pay apply from their start dates</span></div>
+      <ul class="sal-list" id="salList" style="margin-top:12px"></ul>
+      <form id="salForm" class="fields" style="margin-top:14px;align-items:end">
+        <label class="f"><span data-i18n="pay.f.from">Applies from</span><input type="date" id="salFrom" required></label>
+        <label class="f"><span data-i18n="pay.f.amount">Monthly pay (VND)</span><input type="text" inputmode="numeric" id="salAmount" placeholder="10,000,000" required></label>
+        <label class="f"><span data-i18n="pay.f.status">Status</span><select id="salStatus"><option value="probation" data-i18n="pay.status.probation">Probation</option><option value="official" data-i18n="pay.status.official">Permanent</option></select></label>
+        <button class="btn primary" type="submit" data-i18n="pay.f.save">Save pay rate</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="view" id="view-settings" hidden>
+    <div class="settings-grid">
+      <div class="card">
+        <h3 data-i18n="set.info">Profile</h3>
+        <div class="fields" style="margin-top:12px">
+          <label class="f"><span data-i18n="set.lang">Language</span><select id="setLang"><option value="en">English</option><option value="vi">Tiếng Việt</option></select></label>
+          <label class="f"><span data-i18n="set.name">Full name (printed on timesheets)</span><input id="setName" data-i18n-ph="set.namePh" placeholder="Jane Nguyen"></label>
+        </div>
+      </div>
+      <div class="card">
+        <div class="spread"><h3 data-i18n="set.office">Workplace</h3><button class="btn sm" id="useHereBtn" data-i18n="set.useHere">Use current location</button></div>
+        <div class="fields" style="margin-top:12px">
+          <label class="f"><span data-i18n="set.offName">Place name</span><input id="offName" data-i18n-ph="office.defaultName" placeholder="Office"></label>
+          <label class="f"><span data-i18n="set.lat">Latitude</span><input id="offLat" inputmode="decimal" placeholder="21.0359"></label>
+          <label class="f"><span data-i18n="set.lng">Longitude</span><input id="offLng" inputmode="decimal" placeholder="105.8342"></label>
+          <label class="f"><span data-i18n="set.radius">Radius (meters)</span><input id="offRadius" type="number" min="30" step="10"><span class="hint" data-i18n="set.radiusHint">Inside this radius = at the office</span></label>
+        </div>
+        <p class="small muted" style="margin-bottom:0"><span data-i18n="set.mapTip">Tip: in Google Maps, long-press your office building, copy the two coordinates and paste them here.</span> <a id="mapLink" href="https://maps.google.com" target="_blank" rel="noopener" data-i18n="set.mapLink">View the saved location on a map</a></p>
+      </div>
+      <div class="card" id="autoCard" hidden>
+        <h3 data-i18n="set.auto">Automatic check-in</h3>
+        <p class="small muted" style="margin:6px 0 0" data-i18n="set.autoDesc">On each workday the app waits for you to reach the office from the start time (until the check-out cutoff at the latest), then tracks lightly until you leave. Meanwhile a silent notification stays in the status bar.</p>
+        <div class="fields" style="margin-top:12px">
+          <label class="f"><span data-i18n="set.trackStart">Start waiting for check-in at</span><input type="time" id="wTrackStart"></label>
+          <label class="f"><span data-i18n="set.trackEnd">Stop tracking no later than</span><input type="time" id="wTrackEnd"><span class="hint" data-i18n="set.trackEndHint">When you left the office and didn’t come back</span></label>
+        </div>
+        <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px">
+          <span class="src" data-i18n="set.wifi">Office Wi-Fi</span>
+          <p class="small muted" style="margin:0" data-i18n="set.wifiDesc">Tap this while you’re at the office so the app remembers the Wi-Fi networks there.</p>
+          <div id="wifiList" class="small"></div>
+          <div class="row">
+            <button class="btn sm" id="wifiLearnBtn" data-i18n="set.wifiLearn">Save office Wi-Fi</button>
+            <button class="btn sm ghost" id="wifiClearBtn" data-i18n="set.wifiClear">Clear</button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3 data-i18n="set.rules">Timekeeping rules</h3>
+        <div class="fields" style="margin-top:12px">
+          <label class="f"><span data-i18n="set.lunchFrom">Lunch break from</span><input type="time" id="wLunchStart"></label>
+          <label class="f"><span data-i18n="set.lunchTo">Lunch break until</span><input type="time" id="wLunchEnd"></label>
+          <label class="f"><span data-i18n="set.sat">Saturday standard hours (= 1 workday)</span><input type="number" min="1" max="8" step="0.5" id="wSat"></label>
+          <label class="f"><span data-i18n="set.cutoff">Leaving after this time = check-out</span><input type="time" id="wCutoff"></label>
+          <label class="f"><span data-i18n="set.trip">Leaving within (first minutes) = business trip</span><input type="number" min="5" id="wTrip"></label>
+          <label class="f"><span data-i18n="set.dwell">At the office for (minutes) = check-in</span><input type="number" min="1" id="wDwell"></label>
+          <label class="f"><span data-i18n="set.leave">Outside the radius for (minutes) = left</span><input type="number" min="1" id="wLeave"></label>
+          <label class="f"><span data-i18n="set.roundMin">Round check-in/out to blocks of (minutes)</span><input type="number" min="1" id="wRoundMin"></label>
+          <label class="f"><span data-i18n="set.roundMode">Rounding</span><select id="wRoundMode"><option value="down" data-i18n="set.round.down">Round check-in and check-out down</option><option value="company" data-i18n="set.round.company">Round check-in up, check-out down</option><option value="nearest" data-i18n="set.round.nearest">Round to the nearest block</option><option value="none" data-i18n="set.round.none">No rounding</option></select></label>
+          <label class="f"><span data-i18n="set.block">Minimum overtime / step (minutes)</span><input type="number" min="1" id="wBlock"></label>
+          <label class="f"><span data-i18n="set.std">Standard workdays per month</span><select id="wStd"><option value="auto" data-i18n="set.std.auto">Automatic: number of Mon–Sat days</option><option value="24">24</option><option value="26">26</option></select></label>
+        </div>
+        <p class="small muted" style="margin-bottom:0" data-i18n="set.rulesDesc"></p>
+      </div>
+      <div class="card">
+        <div class="spread"><h3 data-i18n="set.hol">Vietnamese public holidays</h3><span class="small muted" data-i18n="set.holHint">2026–2027 preloaded; add new years when they’re announced</span></div>
+        <div class="hol-list" id="holList" style="margin-top:12px"></div>
+        <form id="holForm" class="fields" style="margin-top:12px;align-items:end">
+          <label class="f"><span data-i18n="set.holDate">Date</span><input type="date" id="holDate" required></label>
+          <label class="f"><span data-i18n="set.holName">Holiday name</span><input id="holName" required data-i18n-ph="set.holNamePh" placeholder="New Year’s Day"></label>
+          <label class="f"><span data-i18n="set.holKind">Type</span><select id="holKind"><option value="holiday" data-i18n="set.holKind.holiday">Public holiday (300%)</option><option value="comp" data-i18n="set.holKind.comp">Compensatory day (200%)</option></select></label>
+          <button class="btn" type="submit" data-i18n="set.holAdd">Add day</button>
+        </form>
+      </div>
+      <div class="card">
+        <h3 data-i18n="set.backup">Backup</h3>
+        <p class="small muted" id="backupNote" data-i18n="set.backupNote.default">Download all your timekeeping data as a JSON file, or restore it from a backup.</p>
+        <div class="row">
+          <button class="btn sm" id="exportJsonBtn" data-i18n="set.export">Download backup</button>
+          <label class="btn sm" for="importJson" style="cursor:pointer" data-i18n="set.import">Restore from backup</label>
+          <input type="file" id="importJson" accept="application/json,.json" hidden>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="editModal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="edTitle">
+    <div class="spread"><h2 id="edTitle" data-i18n="edit.heading">Edit day</h2><button class="x-btn" id="edClose" data-i18n-aria="edit.close" aria-label="Close">✕</button></div>
+    <div class="row" id="edMeta"></div>
+    <div class="fields">
+      <label class="f"><span data-i18n="edit.date">Date</span><input type="date" id="edDate"></label>
+      <label class="f"><span data-i18n="edit.in">Check-in</span><input type="time" id="edIn"></label>
+      <label class="f"><span data-i18n="edit.out">Check-out</span><input type="time" id="edOut"></label>
+    </div>
+    <p class="small muted" id="edGps" style="margin:0"></p>
+    <label class="check"><input type="checkbox" id="edTrip"> <span data-i18n="edit.trip">I went on a business trip this day</span></label>
+    <label class="f"><span data-i18n="edit.note">Note</span><textarea id="edNote" data-i18n-ph="edit.notePh" placeholder="e.g. client visit in Bac Ninh"></textarea></label>
+    <div class="row" style="justify-content:space-between">
+      <div class="row">
+        <button class="btn sm ghost" id="edUseGps" data-i18n="edit.useGps">Use GPS times</button>
+        <button class="btn sm danger" id="edDelete" data-i18n="edit.delete">Delete this day</button>
+      </div>
+      <button class="btn primary" id="edSave" data-i18n="edit.save">Save</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+<div id="pdfStage" aria-hidden="true"></div>

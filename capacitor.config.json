@@ -1,0 +1,11 @@
+{
+  "appId": "vn.olive.chamcong",
+  "appName": "Olive Timekeeper",
+  "webDir": "www",
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "css",
+      "initialViewportFitValueHint": "cover"
+    }
+  }
+}

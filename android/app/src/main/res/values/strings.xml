@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Olive Timekeeper</string>
+    <string name="title_activity_main">Olive Timekeeper</string>
+    <string name="package_name">vn.olive.chamcong</string>
+    <string name="custom_url_scheme">vn.olive.chamcong</string>
+    <string name="widget_desc">See today\'s check-in/out times and check in or out with one tap</string>
+    <string name="widget_label">Check in / out</string>
+</resources>

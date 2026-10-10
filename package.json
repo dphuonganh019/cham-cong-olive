@@ -1,0 +1,22 @@
+{
+  "name": "olive-timekeeper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Olive Timekeeper: GPS timekeeping, overtime and pay estimates for Android and the web (English / Vietnamese)",
+  "scripts": {
+    "build:web": "node scripts/build-web.mjs",
+    "test": "node --test tests/core.test.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/filesystem": "^8.1.4",
+    "@capacitor/share": "^8.0.3",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^2.5.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2"
+  }
+}

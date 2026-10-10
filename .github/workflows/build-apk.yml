@@ -1,0 +1,105 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Bangkok
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test the timekeeping logic
+        run: npm test
+
+      - name: Build the web app
+        run: npm run build:web
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up the Android SDK
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" --install "platforms;android-36" "build-tools;36.0.0" "platform-tools" > /dev/null
+
+      - name: Sync the web app into Android
+        run: npx cap sync android
+
+      - name: Check the APK signing key
+        id: key
+        env:
+          KS: ${{ secrets.OLIVE_KEYSTORE_BASE64 }}
+          PW: ${{ secrets.OLIVE_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KS" ] || [ -z "$PW" ]; then
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Secrets OLIVE_KEYSTORE_BASE64 / OLIVE_KEYSTORE_PASSWORD are missing; building an unsigned test build only."
+          else
+            echo "$KS" | base64 -d > "$RUNNER_TEMP/olive-release.jks"
+            echo "has_key=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build APK
+        working-directory: android
+        env:
+          OLIVE_KEYSTORE_PATH: ${{ steps.key.outputs.has_key == 'true' && format('{0}/olive-release.jks', runner.temp) || '' }}
+          OLIVE_KEYSTORE_PASSWORD: ${{ secrets.OLIVE_KEYSTORE_PASSWORD }}
+          OLIVE_KEY_ALIAS: olive
+          OLIVE_KEY_PASSWORD: ${{ secrets.OLIVE_KEYSTORE_PASSWORD }}
+          OLIVE_VERSION_CODE: ${{ github.run_number }}
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          if ! ./gradlew assembleRelease --no-daemon 2>&1 | tee "$RUNNER_TEMP/gradle.log"; then
+            # Surface the error lines in the Annotations panel so they are easy to read
+            { grep -A12 "What went wrong" "$RUNNER_TEMP/gradle.log"; grep -E "error:|\.java:[0-9]+:|Error: |e: " "$RUNNER_TEMP/gradle.log"; } \
+              | grep -v "^> Task" | head -60 > "$RUNNER_TEMP/gradle-errors.txt"
+            # One multi-line annotation (GitHub shows at most 10 annotations per step)
+            echo "::error title=Gradle build failed::$(sed -e 's/%/%25/g' -e 's/\r//g' "$RUNNER_TEMP/gradle-errors.txt" | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          fi
+
+      - name: Stop if there is no signing key
+        if: steps.key.outputs.has_key != 'true'
+        run: |
+          echo "::error::The code builds, but the APK is unsigned because the signing-key secrets are missing. Add both secrets and re-run the workflow."
+          exit 1
+
+      - name: Name the APK
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/app-release.apk "out/OliveTimekeeper-v1.0.${{ github.run_number }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OliveTimekeeper-v1.0.${{ github.run_number }}
+          path: out/*.apk
+
+      - name: Publish a release with the APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Olive Timekeeper v1.0.${{ github.run_number }}
+          files: out/*.apk
+          body: |
+            Download the `.apk` below on your Android phone and open it to install.
+            New versions install over the previous one and keep your timekeeping data.
